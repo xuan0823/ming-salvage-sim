@@ -132,6 +132,22 @@ class _SeedMixin:
                     (row["name"], row["office"], row["office_type"], "剧本补入"),
                 )
 
+        # character_offices 引用的 office_type 可能不在 offices 表（content 的
+        # office_definitions 未覆盖「待铨/地方/未仕」等类型）：补默认行，保证声称的 FK 无违规。
+        for (office_type,) in self.conn.execute(
+            "SELECT DISTINCT office_type FROM characters "
+            "UNION SELECT DISTINCT office_type FROM character_offices"
+        ).fetchall():
+            if self.conn.execute(
+                "SELECT 1 FROM offices WHERE office_type = ?", (office_type,)
+            ).fetchone() is None:
+                self.conn.execute(
+                    "INSERT INTO offices (office_type, skills, tools, authority_scope, power, responsibility, corruption_risk, court_grant_json) "
+                    "VALUES (?, '[]', '[]', '', 50, 50, 30, '{}')",
+                    (office_type,),
+                )
+        self.conn.commit()
+
         if not self.table_has_rows("factions"):
             for faction in self.content.factions.values():
                 self.conn.execute(

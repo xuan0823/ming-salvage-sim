@@ -231,7 +231,6 @@ export type Directive = {
   source: string;
   status: string; // pending（待核定大臣拟旨）| draft（颁诏候选）
   notes: string;
-  authority: string;
 };
 
 export type StructuredDirectiveFieldSpec = {

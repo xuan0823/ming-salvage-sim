@@ -71,6 +71,7 @@ datas = (
     + _webview_data
     + tree_datas("web/dist", "web/dist", exclude_parts={"_backup_rgb", "_original_before_cutout"})
     + tree_datas("web/public", "web/public", exclude_parts={"_backup_rgb", "_original_before_cutout"})
+    + tree_datas(".agno_skills", ".agno_skills")
     + [
         ("content", "content"),
     ]

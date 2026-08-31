@@ -160,8 +160,13 @@ class _ArmiesMixin:
         rows = self.army_rows(limit=limit, danger_order=True)
         if not rows:
             return "军队尚未建档。"
-        total_manpower = self.conn.execute("SELECT SUM(manpower) AS total FROM armies WHERE active = 1").fetchone()
-        total_maintenance = self.conn.execute("SELECT SUM(maintenance_per_turn) AS total FROM armies WHERE active = 1").fetchone()
+        # 口径统一：只算大明军（与维护费口径一致），敌国/藩属军不计入「建档兵力合计」。
+        total_manpower = self.conn.execute(
+            "SELECT SUM(manpower) AS total FROM armies WHERE active = 1 AND owner_power = 'ming'"
+        ).fetchone()
+        total_maintenance = self.conn.execute(
+            "SELECT SUM(maintenance_per_turn) AS total FROM armies WHERE active = 1 AND owner_power = 'ming'"
+        ).fetchone()
         parts = []
         for row in rows:
             maint = int(row["maintenance_per_turn"]) or 0

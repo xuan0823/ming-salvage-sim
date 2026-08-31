@@ -569,7 +569,12 @@ class WebGame:
         if not db_path:
             db_path = user_data_path("ming_sim.db")
         elif not os.path.isabs(db_path):
-            db_path = str(user_data_dir() / db_path)
+            # 相对路径与 CLI 同口径：源码模式按仓库根解析；frozen 模式无写仓库，仍落用户数据目录。
+            from ming_sim.paths import is_frozen
+            if is_frozen():
+                db_path = str(user_data_dir() / db_path)
+            else:
+                db_path = os.path.normpath(os.path.join(ROOT_DIR, db_path))
         llm_config = _build_llm_config_from_runtime()
         random.seed(int(os.environ.get("MING_SIM_SEED", "7")))
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
@@ -928,7 +933,6 @@ class WebGame:
             "source": row["source"],
             "status": row["status"],
             "notes": row["notes"],
-            "authority": row["notes"] or "",
         }
 
     def _character_from_db_row(self, row) -> Character:
@@ -1518,6 +1522,7 @@ class WebGame:
                             did = self.db.add_directive(
                                 self.state, None, draft_text, "大臣拟旨",
                                 notes=f"由{character.name}拟旨入档", status="pending",
+                                actor=character.name,
                             )
                             proposed = {"id": did, "text": draft_text, "status": "pending",
                                         "notes": f"由{character.name}拟旨入档"}
@@ -1558,7 +1563,8 @@ class WebGame:
                     elif tool_name == "issue_secret_order" or res.startswith("__secret_order_registered__") or res.startswith("__secret_order__"):
                         if res.startswith("__secret_order_registered__"):
                             try:
-                                secret_order_id = int(res.split("__")[3])
+                                # tools.py 生成 "__secret_order_registered__{id}__正文"，[2] 才是 id
+                                secret_order_id = int(res.split("__")[2])
                             except Exception:
                                 secret_order_id = 0
                         else:
@@ -1966,37 +1972,6 @@ class WebGame:
                             metrics_recorded = True
                 return "".join(chunks).strip()
 
-            def run_directed_speech(speaker: str, run_prompt: str) -> Iterator[Dict[str, Any]]:
-                nonlocal run_output
-                pieces: List[str] = []
-                metrics_recorded = False
-                emitted_speakers.append(speaker)
-                yield {"type": "speaker", "speaker": speaker}
-                stream = agent.run(run_prompt, stream=True, stream_events=True, yield_run_output=True)
-                for event in stream:
-                    content = getattr(event, "content", None)
-                    event_name = getattr(event, "event", "")
-                    if event_name == "RunContent" and content:
-                        delta = re.sub(r"\s*<<<臣:[^>\n]+>>+\s*", "", str(content))
-                        if not delta:
-                            continue
-                        pieces.append(delta)
-                        for start in range(0, len(delta), 4):
-                            yield {"type": "delta", "speaker": speaker, "content": delta[start:start + 4]}
-                    if type(event).__name__ in ("RunOutput", "RunCompletedEvent"):
-                        run_output = event
-                        if not metrics_recorded:
-                            record_court_stream_metrics(run_output, "court-chat")
-                            metrics_recorded = True
-                content = "".join(pieces).strip()
-                if not content and run_output is not None:
-                    content = re.sub(r"\s*<<<臣:[^>\n]+>>+\s*", "", extract_agent_text(run_output)).strip()
-                    if content:
-                        for start in range(0, len(content), 4):
-                            yield {"type": "delta", "speaker": speaker, "content": content[start:start + 4]}
-                if content:
-                    replies.append({"role": "minister", "speaker": speaker, "content": content})
-
             drama_beats = [
                 {
                     "name": "开场立场",
@@ -2154,7 +2129,64 @@ def sse_event(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _safe_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 web_game: Optional[WebGame] = None  # 懒加载：菜单页点「新游戏/继续/加载存档」才实例化
+
+# 会话级长操作互斥锁：结算推演 / 召对流式等持续持锁运行；改局/删库类操作非阻塞取锁，
+# 取不到即 409。防止 SSE 断连后「幽灵 worker」继续结算与重开/新游戏并发写同一 DB。
+_GAME_OP_LOCK = threading.Lock()
+
+
+def _try_game_op_or_409() -> None:
+    """非阻塞取会话操作锁；取不到抛 409（仅可在 async 端点内调用，调用方须在 finally 释放）。"""
+    if not _GAME_OP_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="当前有政务进行中（颁诏/召对/结算），请稍后再试。")
+
+
+async def _stream_from_worker(
+    producer: "Callable[[Callable[[Optional[Dict[str, Any]]], None]], None]",
+    render: "Callable[[Dict[str, Any]], Optional[str]]",
+) -> AsyncIterator[str]:
+    """把阻塞式流生产者搬到 worker 线程，async generator 从 Queue 消费。
+
+    producer(callback)：在 worker 线程执行；用 callback(item) 投递事件，结束前回调 None。
+    render(item)：把一条事件转成 SSE 字符串（'event:...data:...'），返回 None 表示忽略。
+    producer 抛异常 → 投一条 error 事件后正常收尾（不把异常抛回事件循环）。
+    """
+    ev_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+
+    def worker() -> None:
+        try:
+            producer(ev_queue.put)
+        except Exception as exc:  # noqa: BLE001
+            ev_queue.put({"type": "error", "detail": {"message": str(exc)}})
+        finally:
+            ev_queue.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+    loop = asyncio.get_running_loop()
+    while True:
+        item = await loop.run_in_executor(None, ev_queue.get)
+        if item is None:
+            break
+        rendered = render(item)
+        if rendered is not None:
+            yield rendered
+
+
 app = FastAPI(title="Ming Salvage MVP Web")
 
 
@@ -2607,60 +2639,80 @@ def _scenario_chat_stream(scenario_id: str, message: str) -> Iterator[Dict[str, 
     _agents.bind_content(GameContent.load())  # 菜单态可能无 GameSession
 
     agno_db = _scenario_editor_agno_db()
-    tools = build_scenario_editor_tools(scenario_dir)
-    agent = _agents.create_scenario_editor_agent(llm_config, agno_db, sid, tools)
-    run_input = f"【当前剧本概况】{_scenario_counts_brief(scenario_dir)}\n\n{text}"
-
-    chunks: List[str] = []
-    run_output = None
     try:
-        stream = agent.run(run_input, stream=True, stream_events=True, yield_run_output=True)
-        for event in stream:
-            content = getattr(event, "content", None)
-            if getattr(event, "event", "") == "RunContent" and content:
-                delta = str(content)
-                chunks.append(delta)
-                yield {"type": "delta", "content": delta}
-            if type(event).__name__ in ("RunOutput", "RunCompletedEvent"):
-                run_output = event
-        _dump_llm_messages(run_output, f"剧本编辑/{sid}", agent=agent)
-        reply = "".join(chunks).strip()
-        fail_if_llm_error(reply, "LLM 调用")
-        if not reply and run_output is not None:
-            reply = extract_agent_text(run_output)
+        tools = build_scenario_editor_tools(scenario_dir)
+        agent = _agents.create_scenario_editor_agent(llm_config, agno_db, sid, tools)
+        run_input = f"【当前剧本概况】{_scenario_counts_brief(scenario_dir)}\n\n{text}"
 
-        changes: List[Dict[str, str]] = []
-        if run_output is not None:
-            for te in getattr(run_output, "tools", None) or []:
-                tname = getattr(te, "tool_name", "")
-                if tname in _EDIT_TOOL_NAMES:
-                    changes.append({"tool": tname, "result": str(getattr(te, "result", "") or "")})
+        chunks: List[str] = []
+        run_output = None
+        try:
+            stream = agent.run(run_input, stream=True, stream_events=True, yield_run_output=True)
+            for event in stream:
+                content = getattr(event, "content", None)
+                if getattr(event, "event", "") == "RunContent" and content:
+                    delta = str(content)
+                    chunks.append(delta)
+                    yield {"type": "delta", "content": delta}
+                if type(event).__name__ in ("RunOutput", "RunCompletedEvent"):
+                    run_output = event
+            _dump_llm_messages(run_output, f"剧本编辑/{sid}", agent=agent)
+            reply = "".join(chunks).strip()
+            fail_if_llm_error(reply, "LLM 调用")
+            if not reply and run_output is not None:
+                reply = extract_agent_text(run_output)
 
-        yield {"type": "done", "payload": {
-            "reply": reply or "（已处理。）",
-            "changes": changes,
-            "scenario": _read_scenario_full(sid),
-            "validation": _validate_scenario_dir(scenario_dir),
-        }}
-    except LLMUnavailable as exc:
-        yield {"type": "error", "detail": _llm_error_detail(exc)}
-    except Exception as exc:  # noqa: BLE001
-        yield {"type": "error", "message": f"剧本编辑失败：{exc}"}
+            changes: List[Dict[str, str]] = []
+            if run_output is not None:
+                for te in getattr(run_output, "tools", None) or []:
+                    tname = getattr(te, "tool_name", "")
+                    if tname in _EDIT_TOOL_NAMES:
+                        changes.append({"tool": tname, "result": str(getattr(te, "result", "") or "")})
+
+            yield {"type": "done", "payload": {
+                "reply": reply or "（已处理。）",
+                "changes": changes,
+                "scenario": _read_scenario_full(sid),
+                "validation": _validate_scenario_dir(scenario_dir),
+            }}
+        except LLMUnavailable as exc:
+            yield {"type": "error", "detail": _llm_error_detail(exc)}
+        except Exception as exc:  # noqa: BLE001
+            yield {"type": "error", "message": f"剧本编辑失败：{exc}"}
+    finally:
+        # 每轮独立的 agno 引擎用后即 dispose，避免 Windows 下文件句柄累积。
+        try:
+            agno_db.close()
+        except Exception:
+            pass
 
 
 @app.post("/api/scenarios/{scenario_id}/chat/stream")
 async def api_scenario_chat_stream(scenario_id: str, request: ChatRequest) -> StreamingResponse:
-    async def generate() -> AsyncIterator[str]:
-        for item in _scenario_chat_stream(scenario_id, request.message):
-            item_type = str(item.get("type", "message"))
-            if item_type == "delta":
-                yield sse_event("delta", {"content": item.get("content", "")})
-            elif item_type == "done":
-                yield sse_event("done", item.get("payload", {}))
-            elif item_type == "error":
-                yield sse_event("error", item.get("detail") or {"message": item.get("message", "未知错误")})
-            await asyncio.sleep(0)
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    """剧本编辑流式：同步生成器移入 worker 线程，事件循环不阻塞。"""
+    def produce(callback: "Callable[[Optional[Dict[str, Any]]], None]") -> None:
+        if not _GAME_OP_LOCK.acquire(blocking=False):
+            callback({"type": "error", "detail": {"message": "当前有其他政务进行中（颁诏/召对），请稍后再试。"}})
+            return
+        try:
+            for item in _scenario_chat_stream(scenario_id, request.message):
+                callback(item)
+        except Exception as exc:  # noqa: BLE001
+            callback({"type": "error", "detail": {"message": str(exc)}})
+        finally:
+            _GAME_OP_LOCK.release()
+
+    def render(item: Dict[str, Any]) -> Optional[str]:
+        item_type = str(item.get("type", "message"))
+        if item_type == "delta":
+            return sse_event("delta", {"content": item.get("content", "")})
+        if item_type == "done":
+            return sse_event("done", item.get("payload", {}))
+        if item_type == "error":
+            return sse_event("error", item.get("detail") or {"message": item.get("message", "未知错误")})
+        return None
+
+    return StreamingResponse(_stream_from_worker(produce, render), media_type="text/event-stream")
 
 
 @app.get("/api/menu/status")
@@ -2681,10 +2733,10 @@ async def api_menu_status() -> Dict[str, Any]:
             "base_url": runtime.get("base_url") or os.environ.get("OPENAI_BASE_URL", ""),
             "model": runtime.get("model") or os.environ.get("OPENAI_MODEL", ""),
             "has_api_key": has_api_key,
-            "max_tokens": int(runtime.get("max_tokens") or 8000),
-            "timeout_seconds": float(runtime.get("timeout_seconds") or os.environ.get("OPENAI_TIMEOUT_SECONDS", "180") or 180),
-            "connect_timeout_seconds": float(runtime.get("connect_timeout_seconds") or os.environ.get("OPENAI_CONNECT_TIMEOUT_SECONDS", "60") or 60),
-            "read_timeout_seconds": float(runtime.get("read_timeout_seconds") or os.environ.get("OPENAI_READ_TIMEOUT_SECONDS", "120") or 120),
+            "max_tokens": _safe_int(runtime.get("max_tokens"), 8000),
+            "timeout_seconds": _safe_float(runtime.get("timeout_seconds") or os.environ.get("OPENAI_TIMEOUT_SECONDS", "180") or 180, 180),
+            "connect_timeout_seconds": _safe_float(runtime.get("connect_timeout_seconds") or os.environ.get("OPENAI_CONNECT_TIMEOUT_SECONDS", "60") or 60, 60),
+            "read_timeout_seconds": _safe_float(runtime.get("read_timeout_seconds") or os.environ.get("OPENAI_READ_TIMEOUT_SECONDS", "120") or 120, 120),
             "thinking_level": runtime.get("thinking_level") or os.environ.get("OPENAI_THINKING_LEVEL", ""),
             "advanced_model": runtime.get("advanced_model") or os.environ.get("OPENAI_ADVANCED_MODEL", ""),
             "advanced_base_url": runtime.get("advanced_base_url") or os.environ.get("OPENAI_ADVANCED_BASE_URL", ""),
@@ -2698,51 +2750,76 @@ async def api_menu_status() -> Dict[str, Any]:
 async def api_menu_new_game() -> Dict[str, Any]:
     """开始新游戏：清主 DB → 新建 WebGame。"""
     global web_game
-    if web_game is not None:
-        try:
-            web_game.session.close()
-        except Exception:
-            pass
-        web_game = None
+    _try_game_op_or_409()
     try:
-        web_game = WebGame(fresh=True)
-    except LLMUnavailable as exc:
-        raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
-    except SystemExit as exc:
-        raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
-    return steam_events.with_events(
-        {"state": web_game.state_payload()},
-        [steam_events.add_stat(steam_events.STAT_RUNS_STARTED)],
-    )
+        if web_game is not None:
+            try:
+                web_game.session.close()
+            except Exception:
+                pass
+            web_game = None
+        try:
+            web_game = WebGame(fresh=True)
+        except LLMUnavailable as exc:
+            raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
+        except SystemExit as exc:
+            raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
+        return steam_events.with_events(
+            {"state": web_game.state_payload()},
+            [steam_events.add_stat(steam_events.STAT_RUNS_STARTED)],
+        )
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/menu/continue")
 async def api_menu_continue() -> Dict[str, Any]:
     """继续：用上次主 DB 启动 WebGame。"""
     global web_game
-    if not _has_main_db():
-        raise HTTPException(status_code=404, detail="无上次进度可继续，请先新游戏或加载存档。")
+    _try_game_op_or_409()
     try:
-        web_game = WebGame(fresh=False)
-    except LLMUnavailable as exc:
-        raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
-    except SystemExit as exc:
-        raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
-    return {"state": web_game.state_payload()}
+        if not _has_main_db():
+            raise HTTPException(status_code=404, detail="无上次进度可继续，请先新游戏或加载存档。")
+        # 先关旧 session，避免 Windows 下删库/热替换时文件被旧连接占住。
+        if web_game is not None:
+            try:
+                web_game.session.close()
+            except Exception:
+                pass
+            web_game = None
+        try:
+            web_game = WebGame(fresh=False)
+        except LLMUnavailable as exc:
+            raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
+        except SystemExit as exc:
+            raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
+        return {"state": web_game.state_payload()}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/menu/load_save/{name}")
 async def api_menu_load_save(name: str) -> Dict[str, Any]:
     """从存档启动：先启动空 WebGame（fresh）→ 调 load_save 热替换主 DB。"""
     global web_game
+    _try_game_op_or_409()
     try:
-        web_game = WebGame(fresh=False)  # 先有 session 才能 load_save
-    except LLMUnavailable as exc:
-        raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
-    except SystemExit as exc:
-        raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
-    web_game.load_save(name)
-    return {"state": web_game.state_payload()}
+        if web_game is not None:
+            try:
+                web_game.session.close()
+            except Exception:
+                pass
+            web_game = None
+        try:
+            web_game = WebGame(fresh=False)  # 先有 session 才能 load_save
+        except LLMUnavailable as exc:
+            raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
+        except SystemExit as exc:
+            raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
+        web_game.load_save(name)
+        return {"state": web_game.state_payload()}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.delete("/api/menu/saves/{name}")
@@ -2811,13 +2888,17 @@ async def api_menu_debug_open_data_dir() -> Dict[str, Any]:
 async def api_menu_exit() -> Dict[str, Any]:
     """退回菜单：关 session 但不删 DB。"""
     global web_game
-    if web_game is not None:
-        try:
-            web_game.session.close()
-        except Exception:
-            pass
-        web_game = None
-    return {"ok": True}
+    _try_game_op_or_409()
+    try:
+        if web_game is not None:
+            try:
+                web_game.session.close()
+            except Exception:
+                pass
+            web_game = None
+        return {"ok": True}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/menu/shutdown")
@@ -2904,14 +2985,18 @@ async def api_menu_save_llm(request: LlmSetupRequest) -> Dict[str, Any]:
         advanced_api_key=advanced_api_key,
         advanced_thinking_level=advanced_thinking_level,
     )
+    _try_game_op_or_409()
     try:
-        _verify_llm_configs_or_raise(config)
-    except HTTPException:
-        raise
-    except LLMUnavailable as exc:
-        raise HTTPException(status_code=400, detail=_llm_error_detail(exc)) from None
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail={"code": "llm_validation_failed", "message": str(exc)}) from None
+        try:
+            await asyncio.to_thread(_verify_llm_configs_or_raise, config)
+        except HTTPException:
+            raise
+        except LLMUnavailable as exc:
+            raise HTTPException(status_code=400, detail=_llm_error_detail(exc)) from None
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail={"code": "llm_validation_failed", "message": str(exc)}) from None
+    finally:
+        _GAME_OP_LOCK.release()
     save_runtime_llm(
         normalized_base_url,
         model,
@@ -3526,25 +3611,44 @@ async def api_create_secret_order(minister_name: str, request: SecretOrderReques
 
 @app.post("/api/ministers/{minister_name}/chat")
 async def api_chat(minister_name: str, request: ChatRequest) -> Dict[str, Any]:
+    """非流式召对（兼容）：LLM 调用搬到线程，不阻塞事件循环。"""
     _require_chat_capable_minister(minister_name)
-    return get_game().chat(minister_name, request.message)
+    _try_game_op_or_409()
+    try:
+        return await asyncio.to_thread(get_game().chat, minister_name, request.message)
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/ministers/{minister_name}/chat/stream")
 async def api_chat_stream(minister_name: str, request: ChatRequest) -> StreamingResponse:
+    """流式召对：agent.run 同步拉流移入 worker 线程，事件循环不被 LLM 阻塞；
+    整轮持会话操作锁，断连后幽灵线程不会与新操作并发。"""
     _require_chat_capable_minister(minister_name)
-    async def generate() -> AsyncIterator[str]:
-        for item in get_game().chat_stream(minister_name, request.message):
-            item_type = str(item.get("type", "message"))
-            if item_type == "delta":
-                yield sse_event("delta", {"content": item.get("content", "")})
-            elif item_type == "done":
-                yield sse_event("done", item.get("payload", {}))
-            elif item_type == "error":
-                yield sse_event("error", item.get("detail") or {"message": item.get("message", "流式回复失败。")})
-            await asyncio.sleep(0)
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    def produce(callback: "Callable[[Optional[Dict[str, Any]]], None]") -> None:
+        if not _GAME_OP_LOCK.acquire(blocking=False):
+            callback({"type": "error", "detail": {"message": "当前有其他政务进行中（颁诏/召对），请稍后再试。"}})
+            return
+        try:
+            for item in get_game().chat_stream(minister_name, request.message):
+                callback(item)
+        except Exception as exc:  # noqa: BLE001
+            callback({"type": "error", "detail": {"message": str(exc)}})
+        finally:
+            _GAME_OP_LOCK.release()
+
+    def render(item: Dict[str, Any]) -> Optional[str]:
+        item_type = str(item.get("type", "message"))
+        if item_type == "delta":
+            return sse_event("delta", {"content": item.get("content", "")})
+        if item_type == "done":
+            return sse_event("done", item.get("payload", {}))
+        if item_type == "error":
+            return sse_event("error", item.get("detail") or {"message": item.get("message", "流式回复失败。")})
+        return None
+
+    return StreamingResponse(_stream_from_worker(produce, render), media_type="text/event-stream")
 
 
 @app.post("/api/ministers/{minister_name}/chat/undo")
@@ -3559,37 +3663,48 @@ async def api_court_chat_history() -> Dict[str, Any]:
 
 @app.post("/api/court_chat/stream")
 async def api_court_chat_stream(request: CourtChatRequest) -> StreamingResponse:
-    game = get_game()
-    async def generate() -> AsyncIterator[str]:
-        for item in game.court_chat_stream(request.message, request.ministers):
-            item_type = str(item.get("type", "message"))
-            if item_type == "reply":
-                yield sse_event("reply", {
-                    "role": item.get("role", "minister"),
-                    "speaker": item.get("speaker", ""),
-                    "content": item.get("content", ""),
-                })
-            elif item_type == "conclusion":
-                yield sse_event("conclusion", {
-                    "role": "conclusion",
-                    "speaker": item.get("speaker", "朝议结论"),
-                    "content": item.get("content", ""),
-                    "options": item.get("options", []),
-                })
-            elif item_type == "speaker":
-                yield sse_event("speaker", {"speaker": item.get("speaker", "")})
-            elif item_type == "delta":
-                yield sse_event("delta", {
-                    "speaker": item.get("speaker", ""),
-                    "content": item.get("content", ""),
-                })
-            elif item_type == "done":
-                yield sse_event("done", item.get("payload", {}))
-            elif item_type == "error":
-                yield sse_event("error", item.get("detail") or {"message": item.get("message", "朝会回复失败。")})
-            await asyncio.sleep(0)
+    """朝会议事流式：同步生成器（含模拟打字 sleep）移入 worker 线程，事件循环不阻塞。"""
+    def produce(callback: "Callable[[Optional[Dict[str, Any]]], None]") -> None:
+        if not _GAME_OP_LOCK.acquire(blocking=False):
+            callback({"type": "error", "detail": {"message": "当前有其他政务进行中（颁诏/召对），请稍后再试。"}})
+            return
+        try:
+            for item in get_game().court_chat_stream(request.message, request.ministers):
+                callback(item)
+        except Exception as exc:  # noqa: BLE001
+            callback({"type": "error", "detail": {"message": str(exc)}})
+        finally:
+            _GAME_OP_LOCK.release()
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    def render(item: Dict[str, Any]) -> Optional[str]:
+        item_type = str(item.get("type", "message"))
+        if item_type == "reply":
+            return sse_event("reply", {
+                "role": item.get("role", "minister"),
+                "speaker": item.get("speaker", ""),
+                "content": item.get("content", ""),
+            })
+        if item_type == "conclusion":
+            return sse_event("conclusion", {
+                "role": "conclusion",
+                "speaker": item.get("speaker", "朝议结论"),
+                "content": item.get("content", ""),
+                "options": item.get("options", []),
+            })
+        if item_type == "speaker":
+            return sse_event("speaker", {"speaker": item.get("speaker", "")})
+        if item_type == "delta":
+            return sse_event("delta", {
+                "speaker": item.get("speaker", ""),
+                "content": item.get("content", ""),
+            })
+        if item_type == "done":
+            return sse_event("done", item.get("payload", {}))
+        if item_type == "error":
+            return sse_event("error", item.get("detail") or {"message": item.get("message", "朝会回复失败。")})
+        return None
+
+    return StreamingResponse(_stream_from_worker(produce, render), media_type="text/event-stream")
 
 
 @app.post("/api/court_chat")
@@ -3603,7 +3718,11 @@ async def api_court_chat_summary(request: CourtChatSummaryRequest) -> Dict[str, 
         {"role": m.role, "speaker": m.speaker, "content": m.content}
         for m in request.messages
     ]
-    return get_game().court_chat_summary(messages)
+    _try_game_op_or_409()
+    try:
+        return await asyncio.to_thread(get_game().court_chat_summary, messages)
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/directives")
@@ -3720,33 +3839,42 @@ class IssueDecreeRequest(BaseModel):
 
 @app.post("/api/decree/issue")
 async def api_issue_decree(body: IssueDecreeRequest = IssueDecreeRequest()) -> Dict[str, Any]:
-    """非流式颁诏（保留兼容）。前端默认走 /api/decree/issue/stream。"""
+    """非流式颁诏（保留兼容）：resolve_turn 搬到线程，不阻塞事件循环。
+    前端默认走 /api/decree/issue/stream。"""
     game = get_game()
-    was_ended = bool(game.state.ended)
-    issued_decree = bool(
-        game.session.db.list_directives(game.state, statuses=("draft",))
-        or game.session.db.list_structured_directives(game.state, statuses=("draft",))
-    )
+    _try_game_op_or_409()
+
+    def _run() -> Dict[str, Any]:
+        was_ended = bool(game.state.ended)
+        issued_decree = bool(
+            game.session.db.list_directives(game.state, statuses=("draft",))
+            or game.session.db.list_structured_directives(game.state, statuses=("draft",))
+        )
+        try:
+            result = game.session.resolve_turn(cheat_directive=body.cheat)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        decree = game.session.last_decree
+        if result.awaiting:
+            # 决策点暂停：回合未结算，返回决策点让前端弹窗；不刷新、不计 steam。
+            return {"decree": decree, "awaiting_decision": True,
+                    "decisions": result.decisions, "state": game.state_payload()}
+        report = result.report
+        game.refresh_turn()
+        events = [
+            steam_events.add_stat(steam_events.STAT_TURNS_PLAYED),
+            steam_events.set_stat(steam_events.STAT_MAX_TURN_REACHED, int(game.state.turn)),
+        ]
+        if issued_decree:
+            events.insert(0, steam_events.add_stat(steam_events.STAT_DECREES_ISSUED))
+        if not was_ended and game.state.ended:
+            events.append(steam_events.add_stat(steam_events.STAT_ENDINGS_REACHED))
+        return steam_events.with_events({"decree": decree, "report": report, "state": game.state_payload()}, events)
+
     try:
-        result = game.session.resolve_turn(cheat_directive=body.cheat)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
-    decree = game.session.last_decree
-    if result.awaiting:
-        # 决策点暂停：回合未结算，返回决策点让前端弹窗；不刷新、不计 steam。
-        return {"decree": decree, "awaiting_decision": True,
-                "decisions": result.decisions, "state": game.state_payload()}
-    report = result.report
-    game.refresh_turn()
-    events = [
-        steam_events.add_stat(steam_events.STAT_TURNS_PLAYED),
-        steam_events.set_stat(steam_events.STAT_MAX_TURN_REACHED, int(game.state.turn)),
-    ]
-    if issued_decree:
-        events.insert(0, steam_events.add_stat(steam_events.STAT_DECREES_ISSUED))
-    if not was_ended and game.state.ended:
-        events.append(steam_events.add_stat(steam_events.STAT_ENDINGS_REACHED))
-    return steam_events.with_events({"decree": decree, "report": report, "state": game.state_payload()}, events)
+        return await asyncio.to_thread(_run)
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/decree/issue/stream")
@@ -3763,6 +3891,9 @@ async def api_issue_decree_stream(body: IssueDecreeRequest = IssueDecreeRequest(
         ev_queue.put((kind, data))
 
     def worker() -> None:
+        if not _GAME_OP_LOCK.acquire(blocking=False):
+            ev_queue.put(("__error__", {"message": "当前有其他政务进行中（颁诏/召对），请稍后再试。"}))
+            return
         try:
             game = get_game()
             was_ended = bool(game.state.ended)
@@ -3800,6 +3931,8 @@ async def api_issue_decree_stream(body: IssueDecreeRequest = IssueDecreeRequest(
             ev_queue.put(("__error__", str(e)))
         except Exception as e:  # noqa: BLE001
             ev_queue.put(("__error__", _llm_error_detail(e) if isinstance(e, LLMUnavailable) else str(e)))
+        finally:
+            _GAME_OP_LOCK.release()
 
     async def generate() -> AsyncIterator[str]:
         thread = threading.Thread(target=worker, daemon=True)
@@ -3838,6 +3971,9 @@ async def api_resolve_decisions_stream(body: ResolveDecisionsRequest) -> Streami
         ev_queue.put((kind, data))
 
     def worker() -> None:
+        if not _GAME_OP_LOCK.acquire(blocking=False):
+            ev_queue.put(("__error__", {"message": "当前有其他政务进行中（颁诏/召对），请稍后再试。"}))
+            return
         try:
             game = get_game()
             was_ended = bool(game.state.ended)
@@ -3863,6 +3999,8 @@ async def api_resolve_decisions_stream(body: ResolveDecisionsRequest) -> Streami
             ev_queue.put(("__error__", str(e)))
         except Exception as e:  # noqa: BLE001
             ev_queue.put(("__error__", _llm_error_detail(e) if isinstance(e, LLMUnavailable) else str(e)))
+        finally:
+            _GAME_OP_LOCK.release()
 
     async def generate() -> AsyncIterator[str]:
         thread = threading.Thread(target=worker, daemon=True)
@@ -3961,11 +4099,15 @@ async def api_load_save(name: str) -> Dict[str, Any]:
 @app.post("/api/game/reset")
 async def api_reset_game() -> Dict[str, Any]:
     """清空主 DB 重开新局。存档目录保留。"""
-    get_game().reset_game()
-    return steam_events.with_events(
-        {"state": get_game().state_payload()},
-        [steam_events.add_stat(steam_events.STAT_RUNS_STARTED)],
-    )
+    _try_game_op_or_409()
+    try:
+        get_game().reset_game()
+        return steam_events.with_events(
+            {"state": get_game().state_payload()},
+            [steam_events.add_stat(steam_events.STAT_RUNS_STARTED)],
+        )
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.get("/api/llm/config")
@@ -3990,10 +4132,10 @@ async def api_get_llm_config() -> Dict[str, Any]:
             "base_url": saved.get("base_url", ""),
             "model": saved.get("model", ""),
             "has_api_key": bool(saved.get("api_key", "")),
-            "max_tokens": int(saved.get("max_tokens") or 8000),
-            "timeout_seconds": float(saved.get("timeout_seconds") or 180),
-            "connect_timeout_seconds": float(saved.get("connect_timeout_seconds") or 60),
-            "read_timeout_seconds": float(saved.get("read_timeout_seconds") or 120),
+            "max_tokens": _safe_int(saved.get("max_tokens"), 8000),
+            "timeout_seconds": _safe_float(saved.get("timeout_seconds"), 180),
+            "connect_timeout_seconds": _safe_float(saved.get("connect_timeout_seconds"), 60),
+            "read_timeout_seconds": _safe_float(saved.get("read_timeout_seconds"), 120),
             "thinking_level": saved.get("thinking_level", ""),
             "advanced_model": saved.get("advanced_model", ""),
             "advanced_base_url": saved.get("advanced_base_url", ""),
@@ -4010,25 +4152,30 @@ async def api_set_llm_config(request: LLMConfigRequest) -> Dict[str, Any]:
     adv_base = None if request.advanced_base_url == "__keep__" else request.advanced_base_url
     adv_key = None if request.advanced_api_key == "__keep__" else request.advanced_api_key
     adv_thinking = None if request.advanced_thinking_level == "__keep__" else request.advanced_thinking_level
+    _try_game_op_or_409()
     try:
-        cfg = get_game().apply_llm_config(
-            request.base_url,
-            request.model,
-            request.api_key,
-            request.max_tokens,
-            request.timeout_seconds,
-            request.connect_timeout_seconds,
-            request.read_timeout_seconds,
-            thinking_level=thinking_level,
-            advanced_model=advanced,
-            advanced_base_url=adv_base,
-            advanced_api_key=adv_key,
-            advanced_thinking_level=adv_thinking,
-        )
-    except LLMUnavailable as e:
-        raise HTTPException(status_code=400, detail=_llm_error_detail(e)) from None
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=_llm_error_detail(e)) from None
+        try:
+            cfg = await asyncio.to_thread(
+                get_game().apply_llm_config,
+                request.base_url,
+                request.model,
+                request.api_key,
+                request.max_tokens,
+                request.timeout_seconds,
+                request.connect_timeout_seconds,
+                request.read_timeout_seconds,
+                thinking_level=thinking_level,
+                advanced_model=advanced,
+                advanced_base_url=adv_base,
+                advanced_api_key=adv_key,
+                advanced_thinking_level=adv_thinking,
+            )
+        except LLMUnavailable as e:
+            raise HTTPException(status_code=400, detail=_llm_error_detail(e)) from None
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=_llm_error_detail(e)) from None
+    finally:
+        _GAME_OP_LOCK.release()
     return {
         "base_url": cfg.base_url,
         "model": cfg.model,
@@ -4050,10 +4197,21 @@ async def api_set_llm_config(request: LLMConfigRequest) -> Dict[str, Any]:
 _PORTRAIT_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 
+def _safe_portrait_name(name: str) -> str:
+    """人物名校验：非空且不含路径分隔符/点段（防 Windows 下 %5C 反斜杠路径穿越）。"""
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        return ""
+    return name
+
+
 def _find_portrait_file(name: str) -> Optional[str]:
-    """找该人物已存在的自定义立绘文件（任一扩展名），无则 None。"""
+    """找该人物已存在的自定义立绘文件（任一扩展名），无则 None。
+    名字先过 _safe_portrait_name，含路径分隔符一律视为不存在。"""
+    safe = _safe_portrait_name(name)
+    if not safe:
+        return None
     for ext in _PORTRAIT_EXT.values():
-        path = os.path.join(UPLOAD_PORTRAIT_DIR, f"{name}.{ext}")
+        path = os.path.join(UPLOAD_PORTRAIT_DIR, f"{safe}.{ext}")
         if os.path.exists(path):
             return path
     return None
@@ -4111,6 +4269,9 @@ async def api_set_court_layout(body: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.get("/portraits/custom/{name}")
 async def api_get_portrait(name: str):
+    # 与上传/删除同校验：人物必须存在（集合固定），杜绝任意路径读取。
+    if get_game().find_character(name) is None:
+        raise HTTPException(status_code=404, detail="未找到该人物")
     path = _find_portrait_file(name)
     if path is None:
         raise HTTPException(status_code=404, detail="无自定义立绘")

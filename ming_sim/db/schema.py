@@ -754,31 +754,35 @@ class _SchemaMixin:
         self.ensure_column("characters", "stewardship", "INTEGER NOT NULL DEFAULT 50")
         self.ensure_column("characters", "intrigue", "INTEGER NOT NULL DEFAULT 50")
         self.ensure_column("characters", "learning", "INTEGER NOT NULL DEFAULT 50")
-        self.conn.execute(
-            """
-            UPDATE characters
-            SET diplomacy=MAX(0, MIN(100, ROUND((ability + loyalty) / 2.0))),
-                martial=MAX(0, MIN(100, ROUND((ability + courage) / 2.0))),
-                stewardship=ability,
-                intrigue=MAX(0, MIN(100, ROUND((ability + courage + (100 - integrity)) / 3.0))),
-                learning=ability
-            WHERE diplomacy=50 AND martial=50 AND stewardship=50 AND intrigue=50 AND learning=50
-            """
-        )
-        self.conn.execute(
-            """
-            UPDATE characters
-            SET martial=MAX(0, MIN(100, ROUND((ability + courage) / 2.0)))
-            WHERE martial=50
-            """
-        )
-        self.conn.execute(
-            """
-            UPDATE characters
-            SET stewardship=ability
-            WHERE stewardship=50
-            """
-        )
+        # 旧库五维回填：只在首次迁移执行一次（kv_store 打标）。此前「值=50 门控」
+        # 每次启动都会覆写玩家恰调到 50 的数值，且回填后每次启动都白跑三遍 UPDATE。
+        if not self.kv_get("five_dim_backfill_done"):
+            self.conn.execute(
+                """
+                UPDATE characters
+                SET diplomacy=MAX(0, MIN(100, ROUND((ability + loyalty) / 2.0))),
+                    martial=MAX(0, MIN(100, ROUND((ability + courage) / 2.0))),
+                    stewardship=ability,
+                    intrigue=MAX(0, MIN(100, ROUND((ability + courage + (100 - integrity)) / 3.0))),
+                    learning=ability
+                WHERE diplomacy=50 AND martial=50 AND stewardship=50 AND intrigue=50 AND learning=50
+                """
+            )
+            self.conn.execute(
+                """
+                UPDATE characters
+                SET martial=MAX(0, MIN(100, ROUND((ability + courage) / 2.0)))
+                WHERE martial=50
+                """
+            )
+            self.conn.execute(
+                """
+                UPDATE characters
+                SET stewardship=ability
+                WHERE stewardship=50
+                """
+            )
+            self.kv_set("five_dim_backfill_done", "1")
         # 步骤7：回合阶段（旧库迁移，schema 升级非 fallback）
         self.ensure_column("game_state", "turn_phase", "TEXT NOT NULL DEFAULT 'summoning'")
         # 结局：ended=1 时游戏终结；ending_status 为 context.ENDING_* 类型。

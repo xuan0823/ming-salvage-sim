@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -31,6 +32,10 @@ _OVERRIDE_SET: bool = False
 # 内存缓存的已解析剧本目录。_RESOLVED=True 表示已解析（_RESOLVED_DIR 可能为 None）。
 _RESOLVED_DIR: Optional[str] = None
 _RESOLVED: bool = False
+
+# 保护上述全局槽（override + 缓存）：剧本校验（override）与 assets 加载（active_scenario_dir）
+# 可能来自不同线程（web 端点 + 菜单操作），不加锁会互相踩缓存。
+_LOCK = threading.RLock()
 
 
 def _runtime_scenario_path() -> str:
@@ -71,20 +76,21 @@ def active_scenario_dir() -> Optional[str]:
     优先返回进程内 override；否则用内存缓存，未缓存才读盘解析并缓存。
     陈旧指针（指向已删目录）静默回退 None。
     """
-    if _OVERRIDE_SET:
-        return _OVERRIDE_DIR
-    global _RESOLVED, _RESOLVED_DIR
-    if _RESOLVED:
-        return _RESOLVED_DIR
-    scenario_id = active_scenario_id()
-    resolved: Optional[str] = None
-    if scenario_id:
-        candidate = user_data_dir() / "scenarios" / scenario_id
-        if candidate.is_dir():
-            resolved = str(candidate)
-    _RESOLVED_DIR = resolved
-    _RESOLVED = True
-    return resolved
+    with _LOCK:
+        if _OVERRIDE_SET:
+            return _OVERRIDE_DIR
+        global _RESOLVED, _RESOLVED_DIR
+        if _RESOLVED:
+            return _RESOLVED_DIR
+        scenario_id = active_scenario_id()
+        resolved: Optional[str] = None
+        if scenario_id:
+            candidate = user_data_dir() / "scenarios" / scenario_id
+            if candidate.is_dir():
+                resolved = str(candidate)
+        _RESOLVED_DIR = resolved
+        _RESOLVED = True
+        return resolved
 
 
 def set_active_scenario(scenario_id: Optional[str]) -> None:
@@ -101,7 +107,8 @@ def set_active_scenario(scenario_id: Optional[str]) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"active_id": cleaned}, fh, ensure_ascii=False)
-    _invalidate_cache()
+    with _LOCK:
+        _invalidate_cache()
 
 
 @contextmanager
@@ -110,13 +117,14 @@ def override(scenario_dir: Optional[str]) -> Iterator[None]:
 
     进/出都失效缓存，免得校验时读到旧缓存或污染后续解析。
     """
-    global _OVERRIDE_DIR, _OVERRIDE_SET
-    prev_dir, prev_set = _OVERRIDE_DIR, _OVERRIDE_SET
-    _OVERRIDE_DIR = scenario_dir
-    _OVERRIDE_SET = True
-    _invalidate_cache()
-    try:
-        yield
-    finally:
-        _OVERRIDE_DIR, _OVERRIDE_SET = prev_dir, prev_set
+    with _LOCK:
+        global _OVERRIDE_DIR, _OVERRIDE_SET
+        prev_dir, prev_set = _OVERRIDE_DIR, _OVERRIDE_SET
+        _OVERRIDE_DIR = scenario_dir
+        _OVERRIDE_SET = True
         _invalidate_cache()
+        try:
+            yield
+        finally:
+            _OVERRIDE_DIR, _OVERRIDE_SET = prev_dir, prev_set
+            _invalidate_cache()

@@ -120,6 +120,8 @@ class _FiscalMixin:
                 if row is None:
                     continue
                 old_value = int(row["value"])
+                # 季度额 → 月额：(old+1)//3 = 四舍五入到最近整数（4→1、5→2、7→2、8→3）。
+                # 刻意用四舍五入而非向上取整：月化税目不虚增（向上取整每月多收 1/3 季额）。
                 new_value = max(0, (old_value + 1) // 3)
                 self.conn.execute(
                     "UPDATE fiscal_config SET value = ? WHERE key = ?",
@@ -341,8 +343,8 @@ class _FiscalMixin:
         for row in rows:
             fiscal: dict = json.loads(str(row["fiscal"] or "{}"))
             old = int(fiscal.get(field, 0) or 0)
-            if old <= 0:
-                continue
+            # 0 税省（已罢废）不因 scaling 复活也无变化（0×ratio=0），照常走 new==old 跳过；
+            # 若未来恢复政策需给基准值，应由 apply_dynamic_fiscal_delta 逐省落正数。
             new = max(0, round(old * ratio))
             if new == old:
                 continue
@@ -568,7 +570,7 @@ class _FiscalMixin:
                    SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END) AS income,
                    SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END) AS expense
             FROM economy_ledger
-            WHERE turn = ?
+            WHERE turn = ? AND category != '期初'
             GROUP BY account
             ORDER BY account DESC
             """,

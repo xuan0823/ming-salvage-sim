@@ -19,7 +19,6 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
 
-    os.environ.setdefault("MING_SIM_ELECTRON", "1")
     os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
     from web_app import app

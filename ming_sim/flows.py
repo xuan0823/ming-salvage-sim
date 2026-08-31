@@ -23,11 +23,15 @@ _FISCAL_BASIS_LABELS = {
 def _basis_total(db: GameDB, basis: str) -> int:
     """动态税基合计。人口单位=万人；田地单位=万亩。"""
     if basis in {"population", "registered_land", "hidden_land"}:
-        row = db.conn.execute(f"SELECT SUM({basis}) AS total FROM regions").fetchone()
+        # 只统计大明直辖省份：后金/蒙古/朝鲜/日本等 foreign 省份的税基不计入国库口径。
+        row = db.conn.execute(
+            f"SELECT SUM({basis}) AS total FROM regions WHERE controlled_by = 'ming'"
+        ).fetchone()
         return int(row["total"] or 0)
     if basis in {"guan_min_tian", "wang_tian", "huang_tian"}:
         row = db.conn.execute(
-            f"SELECT SUM(COALESCE(json_extract(fiscal, '$.{basis}'), 0)) AS total FROM regions"
+            f"SELECT SUM(COALESCE(json_extract(fiscal, '$.{basis}'), 0)) AS total FROM regions "
+            "WHERE controlled_by = 'ming'"
         ).fetchone()
         return int(row["total"] or 0)
     return 0
@@ -83,11 +87,14 @@ def calc_province_fiscal(
 
     返回 (国库月收合计, 内库月收合计, 明细列表)。
     """
+    # 只算大明直辖省份：foreign 省份（后金/蒙古/朝鲜/日本/安南/荷兰/西藏）的
+    # 田赋/辽饷/盐税/商税不属于大明国库/内库收入（军饷侧同口径：owner_power='ming'）。
     rows = db.conn.execute(
-        "SELECT id, name, unrest, gentry_resistance, fiscal FROM regions"
+        "SELECT id, name, unrest, gentry_resistance, fiscal FROM regions "
+        "WHERE controlled_by = 'ming'"
     ).fetchall()
     if not rows:
-        raise SystemExit("calc_province_fiscal: regions 表无数据，中止。")
+        raise SystemExit("calc_province_fiscal: regions 表无大明直辖省份，中止。")
 
     cfg = db.get_fiscal_config()
     tian_fu_li_global = int(cfg.get("田赋亩率_base", 250))   # 毫/亩/年
@@ -253,9 +260,13 @@ ISSUE_METRIC_LOCK_CAPS = {
     "民心": 8, "皇威": 5,
 }
 
+# id 逐一对照 content/armies.json（历史版本 6 个错拼/不存在 id 静默失效）：
+# denglaiz→denglai、shaanxi→shaanxi_army、nanjing→nanjing_garrison、
+# fujian→fujian_navy、guangdong→guangdong_navy；xinar（疑为西南）→southwest_tusi。
 ARMY_SALARY_PRIORITY = [
     "guanning", "xuan_da", "jizhen", "shanhaiguan", "jingying",
-    "denglaiz", "dongjiang", "shaanxi", "nanjing", "fujian", "guangdong", "xinar",
+    "denglai", "dongjiang", "shaanxi_army", "nanjing_garrison", "fujian_navy", "guangdong_navy",
+    "southwest_tusi",
 ]
 
 
@@ -644,13 +655,27 @@ def apply_fixed_period_flows(db: GameDB, state: GameState) -> List[Dict[str, obj
         old_arrears = int(row["arrears"])
         old_morale = int(row["morale"])
 
-        # 月固定军饷只发当月，不主动还旧欠。旧欠累积拖着，等玩家下旨拨饷才清。
+        # 月固定军饷只发当月，欠饷累积拖着，等玩家下旨拨饷才清。
         if pay_current > 0:
             db.record_issue_economy_move(
                 state, "国库", -pay_current, "各军军饷", f"{name}{TURN_UNIT}军饷"
             )
 
-        new_arrears = max(0, old_arrears + shortfall)
+        # 当月足额（shortfall=0）且国库仍有盈余 → 自动抵扣旧欠，不下穿 0。
+        # 与「下旨拨饷」同一 ledger（category=各军军饷）；extractor 禁写 arrears，
+        # flows 仍是 arrears 唯一变更点。
+        repaid = 0
+        if shortfall == 0 and old_arrears > 0:
+            remaining = max(0, int(state.metrics["国库"]))
+            repay_target = min(remaining, old_arrears)
+            if repay_target > 0:
+                actual = db.record_issue_economy_move(
+                    state, "国库", -repay_target, "各军军饷",
+                    f"{name}{TURN_UNIT}旧欠自动抵扣",
+                )
+                repaid = min(max(0, int(abs(actual))), old_arrears)
+
+        new_arrears = max(0, old_arrears + shortfall - repaid)
         if shortfall > 0:
             morale_delta = -max(1, round(8 * shortfall / needed))
         elif old_arrears == 0:
@@ -663,6 +688,15 @@ def apply_fixed_period_flows(db: GameDB, state: GameState) -> List[Dict[str, obj
             "UPDATE armies SET arrears = ?, morale = ? WHERE id = ?",
             (new_arrears, new_morale, army_id),
         )
+        if repaid > 0:
+            db.conn.execute(
+                """INSERT INTO army_logs
+                   (turn, year, period, army_id, field, old_value, new_value, delta, reason, event_id, edict_id, actor)
+                   VALUES (?, ?, ?, ?, 'arrears', ?, ?, ?, ?, NULL, NULL, '户部')""",
+                (state.turn, state.year, state.period, army_id,
+                 old_arrears, new_arrears, new_arrears - old_arrears,
+                 f"旧欠自动抵扣{repaid}万两"),
+            )
         if shortfall > 0:
             reason_tag = f"{TURN_UNIT}军饷欠发{shortfall}万两"
         else:

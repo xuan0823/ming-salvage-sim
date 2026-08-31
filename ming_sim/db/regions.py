@@ -19,6 +19,7 @@ from ming_sim.constants import (
     FISCAL_QUANTITY_FIELDS, FISCAL_SCORE_FIELDS, REGION_FIELD_ALIASES, REGION_SCORE_FIELDS, REGION_TEXT_FIELDS, TURN_UNIT,
 )
 from ming_sim.content import GameContent
+from ming_sim.exceptions import LLMContractError
 from ming_sim.matching import match_army_id_from_text, match_region_id_from_text
 from ming_sim.models import Event, GameState, monthly_amount, period_label
 from ming_sim.token_stats import tlog

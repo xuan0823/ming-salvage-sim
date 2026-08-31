@@ -635,11 +635,17 @@ class GameSession:
             elif tool_name == "secret_order" or tool_result.startswith("__secret_order_registered__"):
                 if tool_result.startswith("__secret_order_registered__"):
                     try:
-                        order_id = int(tool_result.split("__")[3])
+                        # tools.py 生成 "__secret_order_registered__{id}__正文"，[2] 才是 id
+                        order_id = int(tool_result.split("__")[2])
                     except Exception:
                         order_id = 0
                     if order_id:
                         result.secret_order_id = order_id
+            elif tool_result.startswith("__secret_order__") and not tool_result.startswith("__secret_order_registered__"):
+                # 直落库失败的降级 payload（tools.py 返回 __secret_order__{json}）：CLI/session 路径也落库，不丢单。
+                payload = tool_result.removeprefix("__secret_order__").strip()
+                if payload:
+                    self._apply_secret_order(payload, character.name)
             elif tool_name == "adjust_tax" or tool_result.startswith("__adjust_tax__"):
                 payload = tool_result.removeprefix("__adjust_tax__").strip()
                 issue_id, summary = self._apply_tax_adjust_issue(payload, character)
@@ -1076,4 +1082,14 @@ class GameSession:
             return None
 
     def close(self) -> None:
-        self.db.close()
+        # agno SQLAlchemy engine 与主 DB 同文件：不 dispose 会在 Windows 上占住文件句柄，
+        # 导致「新游戏/重开」删库时 PermissionError 500。SqliteDb.close() 内部 engine.dispose()。
+        try:
+            if self.agno_db is not None:
+                self.agno_db.close()
+        except Exception:
+            pass
+        try:
+            self.db.close()
+        except Exception:
+            pass

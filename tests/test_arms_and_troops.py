@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 
@@ -11,13 +12,19 @@ import ming_sim.issues as issues
 class ArmsAndTroopsTests(unittest.TestCase):
     def setUp(self):
         self.content = GameContent.load()
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db")
+        # Windows 下 NamedTemporaryFile 保持句柄占用，sqlite 无法打开：先建后关再交给 GameDB。
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
         self.db = GameDB(self.tmp.name, self.content)
         self.db.seed_static_data()
         self.state = self.db.load_state()
 
     def tearDown(self):
-        self.tmp.close()
+        self.db.close()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
 
     def test_opening_arms_stock_defaults(self):
         # 总库＝国家战略储备（供拨发），与军队已配持械是两份。
@@ -111,13 +118,19 @@ class TroopRateAndCanonTests(unittest.TestCase):
 class TechGateTests(unittest.TestCase):
     def setUp(self):
         self.content = GameContent.load()
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db")
+        # Windows 下 NamedTemporaryFile 保持句柄占用，sqlite 无法打开：先建后关再交给 GameDB。
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
         self.db = GameDB(self.tmp.name, self.content)
         self.db.seed_static_data()
         self.state = self.db.load_state()
 
     def tearDown(self):
-        self.tmp.close()
+        self.db.close()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
 
     def test_troop_tiers_seeded(self):
         n = self.db.conn.execute("SELECT COUNT(*) FROM troop_tiers").fetchone()[0]

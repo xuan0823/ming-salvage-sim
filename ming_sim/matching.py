@@ -45,6 +45,10 @@ def match_region_id_from_text(text: str, regions: Dict[str, Region]) -> Optional
     cleaned = compact_name(text)
     if not cleaned:
         return None
+    # 「辽东军」「关宁营」这类军事单位措辞应交给 match_army_id_from_text（'辽东军'=关宁军），
+    # 不该被地区别名（'辽东'）的子串规则截胡。
+    if re.search(r"[军营师]$", cleaned):
+        return None
     matches: List[Tuple[int, str]] = []
     for region in regions.values():
         score = 0
@@ -72,10 +76,10 @@ def army_aliases(army: Army) -> List[str]:
         army.name,
         compact_name(army.name),
         army.station,
-        army.theater,
         army.commander,
-        army.controller,
     ]
+    # theater/controller 是多军共享的建制标签（辽东外线×2、兵部×8），当别名会让
+    # 「辽东外线」「兵部」这类输入在多军间同分而匹配失败，且语义上并非军名。
     for part in re.split(r"\s*/\s*|\s*／\s*", army.name):
         if part.strip():
             aliases.append(part.strip())

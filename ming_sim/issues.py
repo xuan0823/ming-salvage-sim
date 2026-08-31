@@ -1269,6 +1269,37 @@ def _auto_issue_delta_by_assignee(db: GameDB, row: sqlite3.Row) -> tuple[int, st
     return -1, "无专责承办，文移空转一月，事项轻微误期。"
 
 
+def _apply_terminal_issue_effects(
+    db: GameDB,
+    state: GameState,
+    effect: Dict[str, object],
+    issue_id: int,
+    title: str,
+    outcome: str,
+) -> List[Dict[str, object]]:
+    """局势自然终结（inertia 漂移 / 无承办自动推进到 100/0）的统一效果落账。
+
+    与 extractor 推进路径（apply_issue_tracker_output 内）同口径，
+    避免「皇帝推动结案有奖励、自然漂移结案没奖励」的分歧：
+      resolved：metrics/economy/factions/buildings/departments/technologies/fiscal/legacy
+      failed：  metrics/economy/factions/buildings/legacy（失败不下调财政/科技）
+    返回建筑操作列表（供展示，可空）。
+    """
+    tag = "结案" if outcome == "resolved" else "失败"
+    _apply_metric_dict(state, effect.get("metrics") or {}, db=db)
+    _apply_economy_list(db, state, effect.get("economy") or [])
+    _apply_faction_dict(db, effect.get("factions") or {})
+    building_ops = _apply_issue_buildings(
+        db, state, effect.get("buildings"), _ISSUE_PSEUDO_EVENT, f"局势#{issue_id}{tag}"
+    )
+    if outcome == "resolved":
+        _apply_issue_departments(db, state, effect.get("departments"), f"局势#{issue_id}{tag}", issue_id)
+        _apply_issue_technologies(db, state, effect.get("technologies"), f"局势#{issue_id}{tag}", issue_id)
+        _apply_issue_fiscal(db, state, effect.get("fiscal"), f"局势#{issue_id}{tag}")
+    _spawn_legacy_from_effect(db, state, effect, issue_id, str(title))
+    return building_ops
+
+
 def _ensure_issue_monthly_motion(
     db: GameDB,
     state: GameState,
@@ -1296,6 +1327,12 @@ def _ensure_issue_monthly_motion(
         if new_row is None:
             continue
         touched_ids.add(issue_id)
+        # 自动推进把 bar 推到 100/0 时同样落终态效果（与 extractor/inertia 路径同口径）。
+        if new_row["status"] in ("resolved", "failed"):
+            outcome = str(new_row["status"])
+            effect_key = "effect_on_resolve" if outcome == "resolved" else "effect_on_fail"
+            effect = json.loads(new_row[effect_key] or "{}")
+            _apply_terminal_issue_effects(db, state, effect, issue_id, str(new_row["title"]), outcome)
         applied_advances.append({
             "issue_id": issue_id,
             "title": new_row["title"],
@@ -1327,7 +1364,10 @@ def apply_issue_tracker_output(
             issue_id = int(adv.get("issue_id"))
         except (TypeError, ValueError):
             continue
-        base_delta_bar = int(adv.get("delta_bar") or 0)
+        try:
+            base_delta_bar = int(adv.get("delta_bar") or 0)
+        except (TypeError, ValueError):
+            base_delta_bar = 0
         issue_row = db.conn.execute("SELECT * FROM issues WHERE id=?", (issue_id,)).fetchone()
         if issue_row is None or issue_row["status"] != "active":
             continue
@@ -1347,7 +1387,10 @@ def apply_issue_tracker_output(
         # extractor 抽出的 delta_bar 即推演官按承办人专业能力+盘面推过的最终量；
         # 这里不再叠第二道承办系数（否则档位区间被冲破，如 normal 落成 +11），只做 ±50 clamp。
         delta_bar = max(-50, min(50, int(base_delta_bar)))
-        inertia_delta = int(adv.get("inertia_delta") or 0)
+        try:
+            inertia_delta = int(adv.get("inertia_delta") or 0)
+        except (TypeError, ValueError):
+            inertia_delta = 0
         stage_text = str(adv.get("stage_text") or "")[:120]
         narrative = compact_log(adv.get("narrative") or "")
         # 推进推到 100/0 即结案——extractor 在本条推进里同时现填终结效果（含 buildings/departments/
@@ -2072,21 +2115,11 @@ def apply_issue_inertia_and_ongoing(
                 )
                 if new_row is None:
                     continue
-                if new_row["status"] == "resolved":
-                    effect = json.loads(new_row["effect_on_resolve"] or "{}")
-                    _apply_metric_dict(state, effect.get("metrics") or {}, db=db)
-                    _apply_economy_list(db, state, effect.get("economy") or [])
-                    _apply_faction_dict(db, effect.get("factions") or {})
-                    _apply_issue_buildings(db, state, effect.get("buildings"), _ISSUE_PSEUDO_EVENT, f"局势#{issue_id}结案")
-                    _apply_issue_departments(db, state, effect.get("departments"), f"局势#{issue_id}结案", issue_id)
-                    _apply_issue_technologies(db, state, effect.get("technologies"), f"局势#{issue_id}结案", issue_id)
-                    continue
-                elif new_row["status"] == "failed":
-                    effect = json.loads(new_row["effect_on_fail"] or "{}")
-                    _apply_metric_dict(state, effect.get("metrics") or {}, db=db)
-                    _apply_economy_list(db, state, effect.get("economy") or [])
-                    _apply_faction_dict(db, effect.get("factions") or {})
-                    _apply_issue_buildings(db, state, effect.get("buildings"), _ISSUE_PSEUDO_EVENT, f"局势#{issue_id}失败")
+                if new_row["status"] in ("resolved", "failed"):
+                    outcome = str(new_row["status"])
+                    effect_key = "effect_on_resolve" if outcome == "resolved" else "effect_on_fail"
+                    effect = json.loads(new_row[effect_key] or "{}")
+                    _apply_terminal_issue_effects(db, state, effect, issue_id, str(new_row["title"]), outcome)
                     continue
                 row = db.conn.execute("SELECT * FROM issues WHERE id=?", (issue_id,)).fetchone()
                 if row is None:

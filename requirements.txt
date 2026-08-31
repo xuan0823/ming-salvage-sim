@@ -3,3 +3,9 @@ debugpy>=1.8.20
 fastapi>=0.115.0
 pexpect>=4.9.0
 uvicorn[standard]>=0.32.0
+# FastAPI 解析 multipart 表单（自定义立绘上传）必需
+python-multipart>=0.0.9
+# 桌面壳（launcher.py 的 pywebview 套窗）
+pywebview>=5.0
+# 测试依赖（tests/test_structured_directives.py 使用 pytest 风格）
+pytest>=8.0
