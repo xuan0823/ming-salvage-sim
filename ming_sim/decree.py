@@ -324,17 +324,16 @@ def resolve_directives(
         # 此时回合未 next_period（preresolve 自动存档即结算前状态），读档干净回滚。
         raise
     except Exception as exc:
-        print(f"[WARN] 推演 agent 失败：{exc}；本{TURN_UNIT}用简化邸报兜底，跳过 LLM 结算。")
+        print(f"[WARN] 推演日讲官暂未完稿：{exc}；本{TURN_UNIT}录圣旨正文备考，跳过档房抽取。")
         narrative = (
-            f"奉天承运皇帝诏曰：本{TURN_UNIT}推演 agent 被服务方拦截，无完整邸报。"
-            f"已颁诏书：\n{decree_text}\n"
-            f"固定收支已落账，事项 inertia 自然漂移；本{TURN_UNIT}无新立 issue。"
+            f"奉天承运皇帝，诏曰：\n{decree_text}\n\n"
+            f"内阁与户工诸部奉旨谨遵，天下钱粮税赋与固定支应依律落账，各处政务局势循常运转；本{TURN_UNIT}无新立政务。"
         )
-        # 跳过 extractor，避免连锁失败
+        # 跳过档房抽取，避免连锁失败
         db.save_turn_report(state, narrative)
         db.save_turn_extraction(
             state, decree_text=decree_text, narrative=narrative,
-            extractor_output=f"[推演 agent 失败] {exc}；本回合跳过 extractor。",
+            extractor_output=f"[推演未果] {exc}；本月跳过档房抽取。",
         )
         apply_issue_inertia_and_ongoing(db, state, touched_ids=set())
         clear_gated_legacies(db, state)

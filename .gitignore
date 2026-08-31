@@ -32,6 +32,7 @@ data/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+.idea/
 
 # Local AI assistant workspace
 .claude/

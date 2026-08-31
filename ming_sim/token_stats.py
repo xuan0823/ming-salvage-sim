@@ -4,11 +4,21 @@ TOKEN_STATS 是进程级遥测，留模块级单例。
 _TOKEN_PATCH_INSTALLED 守卫保证补丁只打一次。
 """
 
-from __future__ import annotations
-
+import sys
 import threading
 from datetime import datetime
 from typing import Dict
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from ming_sim.llm_config import is_dashscope_base_url
 
@@ -42,7 +52,12 @@ def ts() -> str:
 
 
 def tlog(msg: str) -> None:
-    print(f"[{ts()}] {msg}", flush=True)
+    try:
+        print(f"[{ts()}] {msg}", flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+        safe = msg.encode(enc, errors="replace").decode(enc, errors="replace")
+        print(f"[{ts()}] {safe}", flush=True)
 
 
 def _guess_caller_tag(kwargs: Dict[str, object]) -> str:
