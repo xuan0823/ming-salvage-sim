@@ -60,3 +60,6 @@ output/imagegen/bg_ending.png
 output/imagegen/ending_timeline_scroll.png
 web/public/bg_ending.webp
 web/public/ending_timeline_scroll.webp
+
+# 本地调接口时落盘的临时转储（settle_stream.* 等调试输出）
+settle_stream.*
