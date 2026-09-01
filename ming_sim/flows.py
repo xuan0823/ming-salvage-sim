@@ -112,20 +112,19 @@ def calc_province_fiscal(
         gentry       = int(row["gentry_resistance"])
         fiscal: dict = json.loads(row["fiscal"] or "{}")
 
-        guan_min_tian = fiscal.get("guan_min_tian", 0)
-        huang_tian   = fiscal.get("huang_tian", 0)
-        liao_xiang_li = fiscal.get("liao_xiang_li", 0)
-        salt_tax     = fiscal.get("salt_tax", 0)
-        commerce_tax = fiscal.get("commerce_tax", 0)
+        guan_min_tian = int(fiscal.get("guan_min_tian", 0) or 0)
+        huang_tian   = int(fiscal.get("huang_tian", 0) or 0)
+        liao_xiang_li = int(fiscal.get("liao_xiang_li", 0) or 0)
+        salt_tax     = int(fiscal.get("salt_tax", 0) or 0)
+        commerce_tax = int(fiscal.get("commerce_tax", 0) or 0)
 
-        # 田赋账面月额 = 官民田万亩 × 田赋亩率(毫/亩/年) / 10000 / 12。
-        # 省可在 fiscal.tian_fu_li 覆盖全局亩率（江南重赋/边地轻赋/罢田赋=0）。
-        tian_fu_li = int(fiscal.get("tian_fu_li", tian_fu_li_global))
+        raw_tian_fu_li = fiscal.get("tian_fu_li")
+        tian_fu_li = int(raw_tian_fu_li) if raw_tian_fu_li is not None else tian_fu_li_global
         tian_fu_base = round(guan_min_tian * tian_fu_li / 10000 / 12)
 
         # 辽饷账面月额 = 官民田万亩 × 辽饷亩率(毫/亩/年) / 10000 / 12。
         # 这样清丈后 guan_min_tian 增减会自动牵动辽饷摊派。
-        liao_xiang_base = round(guan_min_tian * int(liao_xiang_li or 0) / 10000 / 12)
+        liao_xiang_base = round(guan_min_tian * liao_xiang_li / 10000 / 12)
 
         # 综合到账率（单一系数，上限1.0，改革后可接近满额）
         eff = _province_efficiency(fiscal, gentry, unrest)

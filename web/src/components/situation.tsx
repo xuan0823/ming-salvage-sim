@@ -22,7 +22,7 @@ export function groupIssues(issues: Issue[]) {
   };
 }
 
-export function SituationPanel({ issues, closedIssues, hasLegacies, compact = false, ministers = [], onOpenDrawer, onChanged }: {
+export const SituationPanel = React.memo(function SituationPanel({ issues, closedIssues, hasLegacies, compact = false, ministers = [], onOpenDrawer, onChanged }: {
   issues: Issue[];
   closedIssues: ClosedIssue[];
   hasLegacies: boolean;
@@ -90,7 +90,7 @@ export function SituationPanel({ issues, closedIssues, hasLegacies, compact = fa
       ) : null}
     </aside>
   );
-}
+});
 
 export function SituationDrawer({ open, issues, closedIssues, onClose, maxDecreeIssues = 10, regions = [], ministers = [], presetTrees, onChanged }: {
   open: boolean;
@@ -672,7 +672,7 @@ export function ManualIssueEditor({ editing, regions = [], ministers = [], prese
   );
 }
 
-export function SituationRow({ issue, ministers = [], onChanged }: { issue: Issue; ministers?: Minister[]; onChanged?: () => void | Promise<void> }) {
+export const SituationRow = React.memo(function SituationRow({ issue, ministers = [], onChanged }: { issue: Issue; ministers?: Minister[]; onChanged?: () => void | Promise<void> }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [tipPos, setTipPos] = React.useState<{ x: number; y: number } | null>(null);
   const [detail, setDetail] = React.useState(false);
@@ -706,7 +706,7 @@ export function SituationRow({ issue, ministers = [], onChanged }: { issue: Issu
       {detail ? <SituationDetailModal issue={issue} ministers={ministers} onClose={closeDetail} onChanged={onChanged} /> : null}
     </div>
   );
-}
+});
 
 
 // 局势悬浮框（精简）：只显数值，hover 触发。详细达成/失败点击弹窗看

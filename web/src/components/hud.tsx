@@ -335,7 +335,7 @@ export function solve8(A: number[][], b: number[]): number[] {
 
 
 // 透视梯形容器：内部 stageW×stageH 的正放内容被 matrix3d 压成梯形
-export function QuadFrame({
+export const QuadFrame = React.memo(function QuadFrame({
   quad, stageW, stageH, baseW, baseH, children, className, style,
 }: {
   quad: { tl: readonly number[]; tr: readonly number[]; br: readonly number[]; bl: readonly number[] };
@@ -366,7 +366,7 @@ export function QuadFrame({
       {children}
     </div>
   );
-}
+});
 
 export function TopStatusBar({
   state,
@@ -461,7 +461,7 @@ export function LongGoalsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function LegacyBar({ legacies }: { legacies: Legacy[] }) {
+export const LegacyBar = React.memo(function LegacyBar({ legacies }: { legacies: Legacy[] }) {
   const [open, setOpen] = React.useState(false);
   if (!legacies || legacies.length === 0) return null;
   return (
@@ -502,9 +502,9 @@ export function LegacyBar({ legacies }: { legacies: Legacy[] }) {
       )}
     </>
   );
-}
+});
 
-export function BudgetHover({ accountName, budget }: { accountName: "国库" | "内库"; budget: BudgetAccount }) {
+export const BudgetHover = React.memo(function BudgetHover({ accountName, budget }: { accountName: "国库" | "内库"; budget: BudgetAccount }) {
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const [pos, setPos] = React.useState<{ left: number; top: number } | null>(null);
@@ -528,12 +528,11 @@ export function BudgetHover({ accountName, budget }: { accountName: "国库" | "
       <button
         ref={triggerRef}
         className="status-money budget-trigger"
-        type="button"
-        aria-label={`查看${displayName}固定收支`}
-        onClick={() => (open ? hide() : show())}
+        aria-label={`${displayName}：${formatMoney(budget.balance)}万两`}
       >
-        <span>{displayName} <b>{formatMoney(budget.balance)}</b></span>
-        <small className={budget.net >= 0 ? "income" : "expense"}>月 {formatSignedMoney(budget.net)}</small>
+        <span className="status-money-label">{displayName}</span>
+        <strong className="status-money-value">{formatMoney(budget.balance)}</strong>
+        <span className="status-money-unit">万两</span>
       </button>
       {open && pos && createPortal(
         <span className="budget-popover budget-popover-portal" role="tooltip"
@@ -559,7 +558,7 @@ export function BudgetHover({ accountName, budget }: { accountName: "国库" | "
       )}
     </span>
   );
-}
+});
 
 export function BudgetMovementsList({ movements, total }: { movements: BudgetMovement[]; total: number }) {
   if (!movements.length) {
@@ -623,7 +622,7 @@ export function BudgetList({ title, items, expense = false }: { title: string; i
 
 
 // 底部命令物件：扣图按木牌坑定位，文字标签按独立文字坑定位（两者分离，各自调位）
-export function CommandSlot({
+export const CommandSlot = React.memo(function CommandSlot({
   slotKey, img, badge, caption, sub, onClick,
 }: {
   slotKey: keyof typeof HUD_SLOTS.命令;
@@ -642,7 +641,7 @@ export function CommandSlot({
       </button>
     </>
   );
-}
+});
 
 export function BottomCommandBar({
   eventsCount,

@@ -48,7 +48,7 @@ export function getRegionMapOpacity(region: RegionPathRenderItem) {
   return region.controlledBy === "ming" ? MING_MAP_OPACITY : EXTERNAL_MAP_OPACITY;
 }
 
-export function GrandMap({ nodes, selectedId, onSelect }: { nodes: MapNode[]; selectedId: string; onSelect: (id: string) => void }) {
+export const GrandMap = React.memo(function GrandMap({ nodes, selectedId, onSelect }: { nodes: MapNode[]; selectedId: string; onSelect: (id: string) => void }) {
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const mapTileRef = React.useRef<HTMLDivElement | null>(null);
   const svgRef = React.useRef<SVGSVGElement | null>(null);
@@ -753,9 +753,9 @@ export function GrandMap({ nodes, selectedId, onSelect }: { nodes: MapNode[]; se
       ) : null}
     </section>
   );
-}
+});
 
-export function NodeIntel({ node }: { node: MapNode }) {
+export const NodeIntel = React.memo(function NodeIntel({ node }: { node: MapNode }) {
   const region = node.region;
   const power = node.power;
   if (node.kind === "external") {
@@ -866,7 +866,7 @@ export function NodeIntel({ node }: { node: MapNode }) {
       ) : null}
     </>
   );
-}
+});
 
 export function Info({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
