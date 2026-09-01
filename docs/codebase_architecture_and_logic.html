@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>《明末力挽狂澜》源码全景解析与 Agent 架构图谱</title>
+  <!-- Mermaid.js for Diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    :root {
+      --bg-primary: #0f1117;
+      --bg-secondary: #161922;
+      --bg-tertiary: #1e2230;
+      --bg-card: #1a1e2b;
+      --bg-hover: #262c3e;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-gold: #eab308;
+      --accent-gold-dim: #ca8a04;
+      --accent-crimson: #ef4444;
+      --accent-crimson-dim: #991b1b;
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --accent-emerald: #10b981;
+      --accent-purple: #a855f7;
+      --border-color: #2e364a;
+      --border-gold: rgba(234, 179, 8, 0.25);
+      --font-serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "Fira Code", Consolas, Monaco, "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.7;
+      overflow-x: hidden;
+      display: flex;
+    }
+
+    /* 侧边导航栏 */
+    #sidebar {
+      width: 300px;
+      height: 100vh;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      position: fixed;
+      top: 0;
+      left: 0;
+      overflow-y: auto;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+    }
+
+    .sidebar-header {
+      padding: 24px 20px;
+      background: linear-gradient(180deg, #241416 0%, var(--bg-secondary) 100%);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-header h1 {
+      font-size: 1.25rem;
+      color: var(--accent-gold);
+      font-family: var(--font-serif);
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-header .badge {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 0.75rem;
+      background: var(--accent-crimson-dim);
+      color: #fecaca;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .nav-list {
+      list-style: none;
+      padding: 15px 10px;
+      flex-grow: 1;
+    }
+
+    .nav-item {
+      margin-bottom: 4px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
+    }
+
+    .nav-link:hover, .nav-link.active {
+      color: var(--accent-gold);
+      background: var(--bg-tertiary);
+      border-left: 3px solid var(--accent-gold);
+    }
+
+    .nav-link i {
+      width: 18px;
+      text-align: center;
+      font-size: 0.95rem;
+    }
+
+    /* 主内容区 */
+    #main-content {
+      margin-left: 300px;
+      width: calc(100% - 300px);
+      padding: 40px 60px 100px;
+      min-height: 100vh;
+      background-color: var(--bg-primary);
+    }
+
+    /* 顶部 Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, #2b1115 0%, #171c2a 60%, #111827 100%);
+      border: 1px solid var(--border-gold);
+      border-radius: 12px;
+      padding: 40px;
+      margin-bottom: 40px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .hero-banner::after {
+      content: "崇禎十七年";
+      position: absolute;
+      right: 20px;
+      bottom: -15px;
+      font-family: var(--font-serif);
+      font-size: 5rem;
+      color: rgba(234, 179, 8, 0.05);
+      font-weight: 900;
+      pointer-events: none;
+    }
+
+    .hero-title {
+      font-family: var(--font-serif);
+      font-size: 2.2rem;
+      color: var(--accent-gold);
+      margin-bottom: 12px;
+      letter-spacing: 2px;
+    }
+
+    .hero-subtitle {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 850px;
+      line-height: 1.8;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+
+    .meta-tag {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border-color);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 章节与标题 */
+    section {
+      margin-bottom: 60px;
+      scroll-margin-top: 30px;
+    }
+
+    .section-title {
+      font-family: var(--font-serif);
+      font-size: 1.6rem;
+      color: #f8fafc;
+      border-bottom: 2px solid var(--border-color);
+      padding-bottom: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+    }
+
+    .section-title::after {
+      content: "";
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      width: 80px;
+      height: 2px;
+      background: var(--accent-gold);
+    }
+
+    .section-title i {
+      color: var(--accent-gold);
+    }
+
+    .h3-title {
+      font-size: 1.25rem;
+      color: var(--accent-cyan);
+      margin: 28px 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .h4-title {
+      font-size: 1.05rem;
+      color: #cbd5e1;
+      margin: 20px 0 10px;
+    }
+
+    p {
+      margin-bottom: 16px;
+      color: var(--text-main);
+    }
+
+    /* 卡片与网格容器 */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+      margin: 20px 0;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin: 20px 0;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    .card:hover {
+      border-color: var(--border-gold);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding-bottom: 8px;
+    }
+
+    .card-title {
+      font-weight: 600;
+      font-size: 1.05rem;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+    }
+
+    .badge-gold { background: rgba(234,179,8,0.15); color: var(--accent-gold); border: 1px solid rgba(234,179,8,0.3); }
+    .badge-crimson { background: rgba(239,68,68,0.15); color: var(--accent-crimson); border: 1px solid rgba(239,68,68,0.3); }
+    .badge-cyan { background: rgba(6,182,212,0.15); color: var(--accent-cyan); border: 1px solid rgba(6,182,212,0.3); }
+    .badge-emerald { background: rgba(16,185,129,0.15); color: var(--accent-emerald); border: 1px solid rgba(16,185,129,0.3); }
+    .badge-purple { background: rgba(168,85,247,0.15); color: var(--accent-purple); border: 1px solid rgba(168,85,247,0.3); }
+
+    /* 表格 */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      margin: 20px 0;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    th {
+      background: var(--bg-tertiary);
+      color: var(--accent-gold);
+      padding: 12px 16px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: #cbd5e1;
+    }
+
+    tr:nth-child(even) {
+      background: rgba(255,255,255,0.015);
+    }
+
+    tr:hover {
+      background: var(--bg-hover);
+    }
+
+    /* 代码块与调用栈 */
+    pre, code {
+      font-family: var(--font-mono);
+    }
+
+    code:not(pre code) {
+      background: var(--bg-tertiary);
+      color: #f43f5e;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+
+    pre {
+      background: #090c10;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 16px 0;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: #e2e8f0;
+    }
+
+    .code-title {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      padding: 8px 16px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .code-title + pre {
+      margin-top: 0;
+      border-radius: 0 0 8px 8px;
+    }
+
+    /* Mermaid 图表容器 */
+    .diagram-box {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 24px 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    .diagram-title {
+      font-size: 0.95rem;
+      color: var(--accent-gold);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    /* 高亮 Callout 提示框 */
+    .callout {
+      border-left: 4px solid var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.08);
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+      margin: 20px 0;
+    }
+
+    .callout-gold {
+      border-left-color: var(--accent-gold);
+      background: rgba(234, 179, 8, 0.08);
+    }
+
+    .callout-crimson {
+      border-left-color: var(--accent-crimson);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .callout-emerald {
+      border-left-color: var(--accent-emerald);
+      background: rgba(16, 185, 129, 0.08);
+    }
+
+    .callout-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .callout-gold .callout-title { color: var(--accent-gold); }
+    .callout-crimson .callout-title { color: var(--accent-crimson); }
+    .callout-emerald .callout-title { color: var(--accent-emerald); }
+    .callout .callout-title { color: var(--accent-cyan); }
+
+    /* 选项卡 Tab 控件 */
+    .tabs-container {
+      margin: 20px 0;
+    }
+
+    .tabs-header {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      border-bottom: none;
+      padding: 10px 18px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: var(--bg-hover);
+    }
+
+    .tab-btn.active {
+      color: var(--accent-gold);
+      background: var(--bg-card);
+      border-color: var(--border-color);
+      border-bottom: 2px solid var(--accent-gold);
+    }
+
+    .tab-pane {
+      display: none;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-top: none;
+      padding: 24px;
+      border-radius: 0 0 8px 8px;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    /* 流程步骤图表条 */
+    .step-chain {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .step-node {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .step-node.active-node {
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+      background: rgba(234,179,8,0.1);
+    }
+
+    .step-arrow {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    /* 返回顶部按钮 */
+    #back-to-top {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: var(--accent-gold);
+      color: #000;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      opacity: 0.8;
+      transition: all 0.2s;
+      z-index: 99;
+      border: none;
+    }
+
+    #back-to-top:hover {
+      opacity: 1;
+      transform: scale(1.1);
+    }
+
+    /* 响应式适配 */
+    @media (max-width: 1024px) {
+      #sidebar { width: 240px; }
+      #main-content { margin-left: 240px; width: calc(100% - 240px); padding: 30px 20px; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      body { flex-direction: column; }
+      #sidebar { width: 100%; height: auto; position: relative; }
+      #main-content { margin-left: 0; width: 100%; padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左侧目录导航 -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h1><i class="fa-solid fa-dragon"></i> 明末力挽狂澜</h1>
+      <span class="badge">源码与多Agent架构全景解析</span>
+    </div>
+    <ul class="nav-list">
+      <li class="nav-item">
+        <a href="#overview" class="nav-link"><i class="fa-solid fa-compass"></i> 1. 系统全景与设计哲学</a>
+      </li>
+      <li class="nav-item">
+        <a href="#architecture" class="nav-link"><i class="fa-solid fa-sitemap"></i> 2. 软件拓扑与技术栈</a>
+      </li>
+      <li class="nav-item">
+        <a href="#database" class="nav-link"><i class="fa-solid fa-database"></i> 3. 数据模型与41张SQLite表</a>
+      </li>
+      <li class="nav-item">
+        <a href="#agent-ecosystem" class="nav-link"><i class="fa-solid fa-users-gear"></i> 4. 多Agent系统与认知架构</a>
+      </li>
+      <li class="nav-item">
+        <a href="#turn-lifecycle" class="nav-link"><i class="fa-solid fa-arrows-spin"></i> 5. 月度回合调用流转全链条</a>
+      </li>
+      <li class="nav-item">
+        <a href="#court-chat-tools" class="nav-link"><i class="fa-solid fa-scroll"></i> 6. 大臣召对与工具拦截系统</a>
+      </li>
+      <li class="nav-item">
+        <a href="#simulation-extraction" class="nav-link"><i class="fa-solid fa-scale-balanced"></i> 7. 月末推演与四模块抽取</a>
+      </li>
+      <li class="nav-item">
+        <a href="#mathematical-models" class="nav-link"><i class="fa-solid fa-calculator"></i> 8. 财政、承办与惯性数学模型</a>
+      </li>
+      <li class="nav-item">
+        <a href="#engineering-optimizations" class="nav-link"><i class="fa-solid fa-bolt"></i> 9. 前沿工程与Token缓存优化</a>
+      </li>
+      <li class="nav-item">
+        <a href="#codebase-index" class="nav-link"><i class="fa-solid fa-folder-tree"></i> 10. 全源码目录与函数索引</a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- 主体内容 -->
+  <main id="main-content">
+    
+    <!-- Hero Banner -->
+    <div class="hero-banner">
+      <div class="hero-title">《明末力挽狂澜》源码全景解析与 Agent 架构图谱</div>
+      <div class="hero-subtitle">
+        基于 Agno 框架的多智能体协同、宏观政略决策、两京十三省财政拟真与双轨结算引擎的高性能晚明崇祯皇帝模拟沙盒系统。
+      </div>
+      <div class="hero-meta">
+        <div class="meta-tag"><i class="fa-brands fa-python"></i> Python 3.11+ / FastAPI</div>
+        <div class="meta-tag"><i class="fa-solid fa-robot"></i> Agno Agent Engine</div>
+        <div class="meta-tag"><i class="fa-solid fa-database"></i> SQLite3 (WAL Engine)</div>
+        <div class="meta-tag"><i class="fa-brands fa-react"></i> React 18 / Tailwind CSS</div>
+        <div class="meta-tag"><i class="fa-solid fa-microchip"></i> DeepSeek Prefix-Cache 优化</div>
+      </div>
+    </div>
+
+    <!-- 1. 系统全景与设计哲学 -->
+    <section id="overview">
+      <h2 class="section-title"><i class="fa-solid fa-compass"></i> 1. 系统全景与设计哲学</h2>
+      <p>
+        《明末力挽狂澜》（Ming Salvage Simulator）是一款以 1627 年末崇祯登基为历史锚点的<b>重度政略对话式模拟器</b>。与市面上常见的「单轮选择题式」历史游戏不同，本项目构建了一套<b>「自然语言交互输入 &rarr; 结构化拟旨/密令 &rarr; 宏观数值物理引擎模拟 &rarr; 多 Agent 叙事与逻辑抽取 &rarr; 状态落库」</b>的完整闭环。
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-hand-fist"></i> 圣旨不是按钮</span>
+            <span class="card-badge badge-crimson">执行是战场</span>
+          </div>
+          <p style="font-size:0.88rem; color:var(--text-muted);">
+            皇帝下旨并非立即见效。圣旨需要落地到地方省份与主管衙门，受制于国库银两、皇威高低、地方士绅阻力、贪腐损耗与承办官员属性。
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-coins"></i> 真实财政循环</span>
+            <span class="card-badge badge-gold">两京十三省</span>
+          </div>
+          <p style="font-size:0.88rem; color:var(--text-muted);">
+            田赋、辽饷、盐税、商税按省分科目结算，经过士绅阻力、民变动乱、贪腐折损等严密数学模型折算为解运银，按军饷、俸禄、工程优先级逐项扣减。
+          </p>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-brain"></i> 高性价比推演</span>
+            <span class="card-badge badge-emerald">85%+ 缓存命中</span>
+          </div>
+          <p style="font-size:0.88rem; color:var(--text-muted);">
+            针对 DeepSeek 等支持 Prompt Prefix Cache 的大模型进行了深度优化，静态盘面 TSV 压缩置前，240+ 回合完整通局仅需数元 API 成本。
+          </p>
+        </div>
+      </div>
+
+      <div class="callout callout-gold">
+        <div class="callout-title"><i class="fa-solid fa-quote-left"></i> 核心游戏循环 (Turn-based Monthly Lifecycle)</div>
+        <p style="margin:0; font-size:0.9rem;">
+          <b>一回合 = 真实历史一个月</b>。从 1627 年 10 月至 1647 年 10 月，上限 240 个回合。月初朝会读取奏报与国库 &rarr; 召见朝臣大臣/后宫妃嫔对话 &rarr; 形成圣旨草案/密令/人事铨选 &rarr; 颁诏触发月末推演 &rarr; 日讲官撰写《月末邸报》 &rarr; 四大档房书办抽取结构化数值增量 &rarr; 财政/人事/军事/势力/局势落地入库 &rarr; 起居注与私人奏对记忆沉淀。
+        </p>
+      </div>
+    </section>
+
+    <!-- 2. 软件拓扑与技术栈 -->
+    <section id="architecture">
+      <h2 class="section-title"><i class="fa-solid fa-sitemap"></i> 2. 软件拓扑与技术栈</h2>
+      <p>系统采用分层松耦合架构，核心仿真状态机 <code>GameSession</code> 完全与展示层解耦，同时支撑 CLI 终端版本与 Web 现代化前端。</p>
+
+      <div class="diagram-box">
+        <div class="diagram-title">图 1: 系统总体分层架构拓扑</div>
+        <pre class="mermaid">
+graph TB
+    subgraph UI_Layer["展示与交互层 (Presentation Layer)"]
+        WebHUD["Web 前端 (React 18 + TS + Tailwind + Lucide)"]
+        CLI["CLI 终端驱动 (ming_sim/cli/terminal.py)"]
+        Desktop["Electron 桌面壳 / PyInstaller 打包"]
+    end
+
+    subgraph API_Layer["服务路由层 (FastAPI Backend)"]
+        WebApp["FastAPI 应用 (web_app.py)"]
+        SSE["SSE 实时流管道 (/court/chat/stream, /turn/resolve/stream)"]
+        SteamSrv["Steam 授权与鉴权服务 (server/steam_auth_server.py)"]
+    end
+
+    subgraph Core_Engine["核心业务引擎层 (ming_sim Core)"]
+        Session["会话状态机 (ming_sim.session.GameSession)"]
+        Registry["廷臣注册表 (ming_sim.registry.MinisterRegistry)"]
+        Decree["诏书结算与HITL (ming_sim.decree.py)"]
+        Flows["财政与数值流动 (ming_sim.flows.py)"]
+        Issues["事项与惯性系统 (ming_sim.issues.py)"]
+        Tools["工具箱与拦截系统 (ming_sim.tools.py)"]
+    end
+
+    subgraph Agent_Layer["Agno 多智能体层 (Multi-Agent Subsystem)"]
+        MinisterAgent["大臣/后宫 Agent (Roleplay + Function Call)"]
+        DecreeAgent["诏书润色官 (Decree Writer)"]
+        SimulatorAgent["月末推演日讲官 (Season Simulator)"]
+        ExtractorAgents["档房书办四大抽取模块 (Score Extractors)"]
+        MemoryAgents["起居注 / 奏对史官 (Chapter / Recap Agents)"]
+        SanitizerAgent["JSON 修复匠 (JSON Sanitizer)"]
+    end
+
+    subgraph Data_Layer["持久化与内容层 (Data & Storage)"]
+        SQLite[("SQLite3 主数据库 (data/ming_sim.db) - 41张表")]
+        AgnoDB[("Agno Session DB (<db>.emperor.db)")]
+        ContentJSON["静态配置 (content/*.json, regions/characters/events)"]
+        Prompts["Prompt 模板 (content/prompts/*.md)"]
+    end
+
+    WebHUD <-->|HTTP REST / SSE| WebApp
+    CLI <--> Session
+    WebApp <--> Session
+    Session --> Registry
+    Session --> Decree
+    Session --> Flows
+    Session --> Issues
+    Registry --> MinisterAgent
+    Decree --> DecreeAgent
+    Decree --> SimulatorAgent
+    Decree --> ExtractorAgents
+    Decree --> MemoryAgents
+    ExtractorAgents -.-> SanitizerAgent
+    MinisterAgent --> Tools
+    Tools --> SQLite
+    Flows --> SQLite
+    Issues --> SQLite
+    Session --> SQLite
+    Session --> AgnoDB
+    Session --> ContentJSON
+    Session --> Prompts
+        </pre>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>模块层次</th>
+              <th>主要文件 / 目录</th>
+              <th>主要职责与技术选型</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b style="color:var(--accent-gold);">启动与入口</b></td>
+              <td><code>main.py</code>, <code>launcher.py</code>, <code>server_backend.py</code></td>
+              <td>CLI 终端入口、桌面 Electron 启动器、双模参数解析与随机种子初始化。</td>
+            </tr>
+            <tr>
+              <td><b style="color:var(--accent-cyan);">Web 服务层</b></td>
+              <td><code>web_app.py</code>, <code>web/</code></td>
+              <td>FastAPI 异步 Web 服务、SSE 流式打字机管道、静态立绘挂载、React 18 古风 HUD。</td>
+            </tr>
+            <tr>
+              <td><b style="color:var(--accent-emerald);">会话与状态机</b></td>
+              <td><code>ming_sim/session.py</code></td>
+              <td><code>GameSession</code> 统筹 <code>TurnPhase</code> 状态变迁、召见/拟旨/颁诏/自动存档热备。</td>
+            </tr>
+            <tr>
+              <td><b style="color:var(--accent-purple);">智能体与提示词</b></td>
+              <td><code>ming_sim/agents.py</code>, <code>ming_sim/registry.py</code>, <code>content/prompts/</code></td>
+              <td>基于 Agno 构建的 Minister、Simulator、Extractor Agent 创建工厂与 Prompt 装配。</td>
+            </tr>
+            <tr>
+              <td><b style="color:var(--accent-crimson);">规则与物理引擎</b></td>
+              <td><code>ming_sim/decree.py</code>, <code>ming_sim/flows.py</code>, <code>ming_sim/issues.py</code></td>
+              <td>省级税收公式计算、九边欠饷算法、事项阻力漂移、承办人属性修正系数。</td>
+            </tr>
+            <tr>
+              <td><b style="color:#f97316;">数据存储层</b></td>
+              <td><code>ming_sim/db/*.py</code>, <code>ming_sim/models.py</code></td>
+              <td>41 张 SQLite 核心业务表、关系日志追踪、数据契约模型。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3. 数据模型与41张SQLite表 -->
+    <section id="database">
+      <h2 class="section-title"><i class="fa-solid fa-database"></i> 3. 数据模型与 41 张 SQLite 表架构</h2>
+      <p>
+        游戏数据库 <code>data/ming_sim.db</code> 采用 SQLite3 WAL 模式，在 <code>ming_sim/db/schema.py</code> 中定义了 <b>41 张核心数据表</b>，涵盖国家、人事、财政、地区、军事、外势、事项、建筑、科技与记忆全链路。
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-landmark"></i> 核心统治与大政盘面</span>
+            <span class="card-badge badge-gold">国家级</span>
+          </div>
+          <ul style="padding-left:18px; font-size:0.88rem; color:var(--text-muted);">
+            <li><code>game_state</code>: 当前年、月(period)、回合(turn)、阶段(turn_phase: summoning/reviewing/awaiting_decision/issued)。</li>
+            <li><code>metrics</code>: 核心国势四指标（<code>国库</code>、<code>内库</code>、<code>民心</code>、<code>皇威</code>）。</li>
+            <li><code>factions</code>: 朝堂六大派系（东林、阉党、齐楚浙、勋贵、边将、内廷）满意度与影响力。</li>
+            <li><code>classes</code>: 全国阶级（士绅、宗藩、商贾、边兵、流民、佃农等）全国汇总满意度与影响力。</li>
+            <li><code>powers</code> / <code>power_logs</code>: 外部与割据势力（后金、蒙古、朝鲜、流寇等）战力、态势与行动日志。</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-users"></i> 人事铨选与廷臣名册</span>
+            <span class="card-badge badge-cyan">官员/后宫</span>
+          </div>
+          <ul style="padding-left:18px; font-size:0.88rem; color:var(--text-muted);">
+            <li><code>characters</code>: 人物基础属性（忠诚、能力、清廉、胆略、五维学识、生卒年月、状态 active/dismissed/imprisoned/exiled/retired/dead/candidate）。</li>
+            <li><code>offices</code> / <code>character_offices</code>: 官缺职掌、权力、责任、贪腐风险与 <code>court_grant_json</code> 专属工具授权。</li>
+            <li><code>character_traits</code>: 后宫调教习得的专属技能与性格变更永久记录。</li>
+            <li><code>chat_messages</code> / <code>minister_recaps</code>: 历史御前奏对与跨月私下纪要。</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-map-location-dot"></i> 两京十三省与全军盘面</span>
+            <span class="card-badge badge-emerald">地理/军事</span>
+          </div>
+          <ul style="padding-left:18px; font-size:0.88rem; color:var(--text-muted);">
+            <li><code>regions</code> / <code>region_logs</code>: 省级人口、动乱、民心、天灾人祸、在册田、隐田、官民田、皇庄、庄田、税率与粮产。</li>
+            <li><code>armies</code> / <code>army_logs</code>: 关宁军、京营、天雄军等部队编制、人数、月费、欠饷、士气、训练、装备、忠诚与归属。</li>
+            <li><code>army_held_arms</code> / <code>arms_stock</code>: 军备总库与各军兵种实持火炮、火铳、三眼铳实物库存。</li>
+            <li><code>buildings</code> / <code>departments</code> / <code>technologies</code>: 火炮厂、常平仓、边堡、六部九卿职掌与新式科技。</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-list-check"></i> 事项跟踪与诏书密令</span>
+            <span class="card-badge badge-purple">政略闭环</span>
+          </div>
+          <ul style="padding-left:18px; font-size:0.88rem; color:var(--text-muted);">
+            <li><code>issues</code> / <code>issue_advances</code>: 在办事项（0-100进度条、惯性、承办人、善恶两端含义、结案/失败条件与副作用）。</li>
+            <li><code>directives</code> / <code>structured_directives</code>: 玩家自然语言草案与结构化政令模板。</li>
+            <li><code>secret_orders</code> / <code>secret_order_logs</code>: 绕开朝堂的锦衣卫/司礼监密令查办、催办、进展与铁证入档。</li>
+            <li><code>legacies</code>: 帝国修正（开局负面修正与长期增益 buff）。</li>
+            <li><code>turn_reports</code> / <code>turn_extractions</code> / <code>event_memories</code>: 月末邸报原文、档房抽取 JSON 留痕与起居注章节记忆。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 多Agent系统与认知架构 -->
+    <section id="agent-ecosystem">
+      <h2 class="section-title"><i class="fa-solid fa-users-gear"></i> 4. 多 Agent 系统与认知架构</h2>
+      <p>
+        本项目采用了<b>分工明确的 Multi-Agent 架构</b>，所有 Agent 均由 <code>ming_sim/agents.py</code> 和 <code>ming_sim/registry.py</code> 中的工厂函数生成。
+      </p>
+
+      <div class="diagram-box">
+        <div class="diagram-title">图 2: 多 Agent 协作与数据流转拓扑</div>
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor Player as 崇祯皇帝 (玩家)
+    participant Minister as 大臣/后宫 Agent
+    participant Writer as 诏书润色官 Agent
+    participant Simulator as 月末推演日讲官 Agent
+    participant Extractors as 档房书办四大抽取 Agent
+    participant DB as SQLite 数据库
+    participant Memory as 起居注/纪要史官 Agent
+
+    Player ->> Minister: 召见对话 ("查户部存银，拟一道辽东均饷圣旨")
+    Minister ->> DB: 调取工具 query_court_roster / check_treasury
+    Minister -->> Player: 呈奏回答，产出草案 __pending_directive__
+    Player ->> DB: 确认草案 (confirm_directive)
+    Player ->> Writer: 颁布诏书 (write_decree)
+    Writer -->> DB: 合成润色圣旨正文 (decree_text)
+    
+    rect rgb(30, 20, 25)
+        Note over Simulator, DB: 月末推演阶段 (Settlement Phase 1)
+        Simulator ->> DB: 摄取全量盘面 (TSV+JSON 压缩) + 诏书
+        Simulator -->> Player: 流式输出《月末邸报》正文 + 决策块
+    end
+
+    rect rgb(20, 30, 35)
+        Note over Extractors, DB: 结构化抽取阶段 (Settlement Phase 2)
+        Extractors ->> Simulator: 读取同一篇邸报正文
+        Extractors -->> DB: 并发抽取 internal / military / issues / personnel JSON
+        DB ->> DB: 执行落库：数值变动、承办人进度修正、惯性漂移
+    end
+
+    rect rgb(25, 25, 35)
+        Note over Memory, DB: 记忆沉淀阶段
+        Memory ->> DB: 章节浓缩落库 (event_memories)
+        Memory ->> DB: 大臣私下对话纪要 (minister_recaps)
+    end
+        </pre>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">1. 大臣/后宫 Agent (Minister/Consort)</span>
+            <span class="card-badge badge-gold">ming_sim/registry.py</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            <b>角色设定：</b>扮演具体朝臣（王承恩、孙承宗、魏忠贤、毕自严等）或后宫佳丽。拥有独立脾气性格、派系私心、任事处所。<br>
+            <b>输入上下文：</b>固定装配<code>game_world_prompt</code> + <code>minister_agent_prompt</code> + 人物档案 + 在朝名册(TSV) + 军队名册 + 上月邸报全文 + 更早章节记忆 + 近月私下奏对纪要 + 名下在办密令 + 军备库存。<br>
+            <b>能力工具：</b>专属挂载查账、查省、查军、拟旨入档、下达密令、铨选推荐、调税立项、拨发军械等 Tools。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">2. 诏书润色官 Agent (Decree Writer)</span>
+            <span class="card-badge badge-cyan">ming_sim/agents.py:361</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            <b>角色设定：</b>内阁中书舍人/翰林学士。<br>
+            <b>核心职责：</b>将玩家在御前对话中核定的多道零散草案（directives）与已办结密令证据（closed_secret_orders）整合为一篇行文典雅、符合明代圣旨诏敕风格的完整皇帝诏书。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">3. 月末推演日讲官 Agent (Season Simulator)</span>
+            <span class="card-badge badge-crimson">ming_sim/agents.py:532</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            <b>角色设定：</b>宏观推演日讲官。走 <code>advanced_model</code> 高阶推理模型。<br>
+            <b>核心职责：</b>全面审视全国盘面与圣旨，撰写具备宏大历史纵深感的明代文风《月末邸报》。按章节叙述圣旨执行偏差、地方动荡、边防战事、朝廷暗流，并在末尾输出「陛下未知者」暗线与「待办未解」事项。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">4. 档房书办四大抽取 Agent (Score Extractors)</span>
+            <span class="card-badge badge-emerald">ming_sim/agents.py:563</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            <b>核心架构：</b>拆分为 4 个独立专业书办，强制严格 JSON 输出（<code>force_json_output=True</code>），采用<b>「第1个模块串行暖缓存，后3个模块并行命中前缀」</b>的高效调度：<br>
+            • <code>internal</code>: 国势四维、收支流水、派系阶级、地区指标、财政科目变动。<br>
+            • <code>military_external</code>: 军队战力装备、新建军队、兵种持械、外部势力动向。<br>
+            • <code>issues</code>: 事项进度增减、新立事项、结案/撤销。<br>
+            • <code>personnel_secret</code>: 官职任免、下狱/流放/起复、密令进展判定、崇祯结局。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">5. 史官与辅助 Agent (Memory / Sanitizer / Ending)</span>
+            <span class="card-badge badge-purple">ming_sim/agents.py:602-693</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            • <code>json-sanitizer</code>: 当抽取 JSON 出现语法破损或污染时，进行无损纯语法修复。<br>
+            • <code>chapter-memory</code>: 月末将当月诏书、邸报与落库效果提炼为一段起居注叙事，打上标签存入记忆库。<br>
+            • <code>minister-recap</code>: 浓缩大臣个人奏对与承办纪要，下回合召见时装填其大脑。<br>
+            • <code>ending-summary</code>: 游戏终局时通读全篇起居注历史，撰写史诗级崇祯帝史评总结。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">6. 剧本生成与编辑助手 (Scenario Gen / Editor)</span>
+            <span class="card-badge badge-gold">ming_sim/agents.py:703-785</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            • <code>scenario-generator</code>: 根据玩家自然语言构思，一键生成完整的 <code>characters.json</code>、<code>events.json</code>、<code>seed_events.json</code>。<br>
+            • <code>scenario-editor</code>: 支持多轮对话与 Tool Calling，可视化增删改剧本人物与事件设定。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 月度回合调用流转全链条 -->
+    <section id="turn-lifecycle">
+      <h2 class="section-title"><i class="fa-solid fa-arrows-spin"></i> 5. 月度回合调用流转全链条</h2>
+      <p>下面详细剖析一个完整游戏月（One Turn）从玩家进入到下一月生成所经历的每一个核心 Python 函数调用顺序与数据传递链路。</p>
+
+      <div class="step-chain">
+        <div class="step-node active-node"><i class="fa-solid fa-play"></i> begin_turn()</div>
+        <div class="step-arrow">&rarr;</div>
+        <div class="step-node"><i class="fa-solid fa-comments"></i> chat() 召见对话</div>
+        <div class="step-arrow">&rarr;</div>
+        <div class="step-node"><i class="fa-solid fa-file-signature"></i> confirm/write_decree()</div>
+        <div class="step-arrow">&rarr;</div>
+        <div class="step-node active-node"><i class="fa-solid fa-gears"></i> resolve_turn()</div>
+        <div class="step-arrow">&rarr;</div>
+        <div class="step-node"><i class="fa-solid fa-forward-step"></i> next_period() & 存档</div>
+      </div>
+
+      <div class="code-title">
+        <span><i class="fa-brands fa-python"></i> 核心执行链路伪代码解析 (Call Stack & Execution Order)</span>
+        <span>GameSession -> decree.py -> simulation.py</span>
+      </div>
+      <pre>
+# ══════════════════════════════════════════════════════════════════════════════════
+# 第一阶段：月初初始化与朝会召对 (Summoning Phase)
+# ══════════════════════════════════════════════════════════════════════════════════
+session = GameSession(db_path, llm_config)
+snapshot = session.begin_turn()
+  ├─ db.apply_historical_deaths(state)       # 检查历史卒年月，自动将对应官员状态改 dead
+  ├─ db.apply_historical_debuts(state)       # 检查历史登场年月，自动将 offstage 官员置 active
+  ├─ _sync_offices_from_db_impl()            # 同步最新人物到内存结构
+  ├─ MinisterRegistry()                      # 初始化大臣注册表（采用懒加载，召见时再建 Agent）
+  └─ auto_save("begin")                      # 创建月初热备自动存档 auto_<cid>_..._begin.db
+
+# 玩家在前端发起对话 (支持 SSE 流式传输)
+result = session.chat(minister_name="毕自严", message="户部今岁赋税几何？关宁军欠饷可能支发？")
+  ├─ registry.get(character)                 # 获取或创建 Agent (装配在朝名册、上月邸报、密令)
+  ├─ agent.run(augmented_message)            # 执行 Agno 推理，附带工具调用 (Tool Execution)
+  └─ 拦截工具返回值:
+       ├─ propose_directive()               --> 产生 __pending_directive__ 存入 directives (status='pending')
+       ├─ propose_appointment()             --> 吏部铨选 __pending_appointment__
+       ├─ adjust_tax()                      --> 户部调税 __adjust_tax__ (立调税 issue)
+       ├─ secret_order()                    --> 锦衣卫/司礼监密令直接登记入库
+       └─ dispatch_arms()                   --> 兵部拨发军备 __pending_arms_dispatch__
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# 第二阶段：草案核定与拟诏 (Reviewing & Drafting Phase)
+# ══════════════════════════════════════════════════════════════════════════════════
+session.confirm_directive(directive_id)      # 皇帝准奏：status 变 'draft'
+session.write_decree()                       # 调 decree_writer agent 将所有 draft 草案润色为圣旨正文
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# 第三阶段：颁诏推演与数据结算 (Settlement Phase 1 & 2)
+# ══════════════════════════════════════════════════════════════════════════════════
+resolve_result = session.resolve_turn(decree_text)
+  │
+  ├─ [1/4] auto_save("preresolve")           # 结算前紧急存档，防止 LLM 超时或中断
+  ├─ [2/4] apply_fixed_period_flows()        # 固定月度财政入账 (省税收/九边补给/俸禄硬扣)
+  │    └─ calc_province_fiscal()             # 算各省田赋/辽饷/盐税/商税 (乘综合到账率 eff)
+  ├─ [3/4] auto_trigger_seed_issues()        # 硬触发种子情势判定
+  ├─ [4/4] 检索记忆与到期密令:
+  │    ├─ db.list_chapter_memories()         # 召回前 6 个月章节记忆
+  │    └─ db.auto_submit_due_secret_orders() # 到期密令强制转 pending_review
+  │
+  ├─ [5/4] 推演 Agent (Season Simulator) 写邸报:
+  │    ├─ build_simulator_payload()          # 盘面转 TSV 表格并拼接稳定 Prompt 前缀
+  │    ├─ create_season_simulator_agent()
+  │    └─ simulate_season_with_payload()     # 流式生成《月末邸报》Markdown 正文
+  │
+  ├─ [6/4] HITL 决策点检查 (parse_decision_blocks):
+  │    └─ 若包含 <<DECISION>> 块 -> 返回 awaiting=True，暂停等待皇帝亲裁
+  │
+  ├─ [7/4] 四大档房书办抽取 (Score Extractors):
+  │    ├─ extract_scores_by_modules_with_agno()
+  │    │    ├─ 串行跑 extractor/internal      # 暖好前缀缓存 (Prompt Cache Warmup)
+  │    │    └─ 并行并发跑后 3 个 extractors   # 极速并发抽取其余模块
+  │    └─ filter_unmentioned_personnel()     # 严格校验：邸报未提之人不准变动状态
+  │
+  ├─ [8/4] 结构化结果落库 (apply_score_extraction):
+  │    ├─ _apply_metric_dict()               # 国库/内库/民心/皇威落地 (带防刷死锁上限)
+  │    ├─ _apply_economy_list()              # 查抄/专款单笔流水入账
+  │    ├─ _apply_region_dict() / army_dict() # 地区动乱/军队装备更新
+  │    ├─ 事项推进计算 (_auto_issue_delta_by_assignee) # 结合承办人属性增减进度条
+  │    ├─ 事项结案/失败判定                  # 进度满100触发 resolve_effect，跌0触发 fail_effect
+  │    └─ clear_gated_legacies()             # 检查并解除已达标的历史负面修正
+  │
+  ├─ [9/4] 事项自然惯性漂移与持续扣费 (apply_issue_inertia_and_ongoing)
+  ├─ [10/4] 沉淀起居注与私人纪要:
+  │    ├─ record_chapter_memory()            # chapter_memory agent 生成本月简史
+  │    └─ record_minister_recaps()           # minister_recap agent 生成大臣对话记忆
+  │
+  └─ [11/4] 结局判定与回合推进:
+       ├─ victory_status()                   # 判定中兴、京畿失守、退位自尽或满240回合
+       ├─ db.mark_directives_issued()        # 草案置为 issued
+       ├─ state.next_period()                # turn + 1, period + 1 (年份顺延)
+       └─ db.save_state()
+      </pre>
+    </section>
+
+    <!-- 6. 大臣召对与工具拦截系统 -->
+    <section id="court-chat-tools">
+      <h2 class="section-title"><i class="fa-solid fa-scroll"></i> 6. 大臣召对与工具拦截系统</h2>
+      <p>
+        大臣并非普通的闲聊机器，而是能够通过 <code>ming_sim/tools.py</code> 中的工具函数直接感知天下大势，并向系统发出带特殊标记（Sentinel Tokens）的结构化政略指令。
+      </p>
+
+      <div class="diagram-box">
+        <div class="diagram-title">图 3: 大臣工具调用与哨兵拦截机制</div>
+        <pre class="mermaid">
+graph LR
+    subgraph LLM_Chat["大臣 LLM 交互"]
+        UserMsg["皇帝御前发问"] --> MinisterLLM["大臣 Agent 推理"]
+        MinisterLLM --> CallTool{"是否调用 Tool?"}
+    end
+
+    subgraph Read_Tools["只读感知工具 (直接返回数据)"]
+        CallTool -->|query_court_roster| Roster["查朝臣名册"]
+        CallTool -->|check_treasury| Treasury["查国库/内库"]
+        CallTool -->|inspect_region| Region["查两京十三省详况"]
+        CallTool -->|search_memories| Memory["检索起居注旧事"]
+    end
+
+    subgraph Sentinel_Tools["政略动作工具 (返回哨兵标记串)"]
+        CallTool -->|propose_directive| S1["__pending_directive__<圣旨正文>"]
+        CallTool -->|propose_appointment| S2["__pending_appointment__<JSON>"]
+        CallTool -->|adjust_tax| S3["__adjust_tax__<JSON>"]
+        CallTool -->|dispatch_arms| S4["__pending_arms_dispatch__<JSON>"]
+        CallTool -->|secret_order| S5["__secret_order_registered__<ID>"]
+    end
+
+    subgraph Session_Interceptor["GameSession.chat() 拦截与处理"]
+        S1 --> DirectivesTable[("写入 directives 表 (pending 状态)")]
+        S2 --> AppointHandler["吏部建档/腾缺原官/注册新 Agent"]
+        S3 --> TaxHandler["户部调税立项 (写入 issues 表)"]
+        S4 --> ArmsHandler["总库扣减并直接增加受拨军队持械"]
+        S5 --> SecretOrderDB[("密令落库 & 开启月度推进")]
+    end
+
+    DirectivesTable --> FrontEnd["推送到前端界面 准/驳 待办栏"]
+        </pre>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>工具名称 (Tool Name)</th>
+              <th>授权官署</th>
+              <th>返回值 / 拦截哨兵 (Sentinel)</th>
+              <th>系统动作与数据库行为</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>propose_directive</code></td>
+              <td>所有在朝大臣</td>
+              <td><code>__pending_directive__&lt;text&gt;</code></td>
+              <td>把大臣建议草拟成一道圣旨，插入 <code>directives</code> 表为 <code>pending</code> 状态，等待皇帝核定。</td>
+            </tr>
+            <tr>
+              <td><code>propose_appointment</code></td>
+              <td>吏部尚书/侍郎专属</td>
+              <td><code>__pending_appointment__&lt;json&gt;</code></td>
+              <td>吏部铨选拟任。自动校验重名，若指定 <code>replaces</code> 则将原官置 <code>dismissed</code> 腾缺，并立刻注册新 Agent。</td>
+            </tr>
+            <tr>
+              <td><code>adjust_tax</code></td>
+              <td>户部尚书/侍郎专属</td>
+              <td><code>__adjust_tax__&lt;json&gt;</code></td>
+              <td>奏请调整田赋/辽饷/盐税/商税。非即时生效，而是自动新立一道调税 <code>issue</code>，进度条推至 100 结案时才真改各省税率。</td>
+            </tr>
+            <tr>
+              <td><code>dispatch_arms</code></td>
+              <td>兵部/工部专属</td>
+              <td><code>__pending_arms_dispatch__&lt;json&gt;</code></td>
+              <td>从国家军备总库拨发红夷大炮、火铳等到前线军种。即时扣减总库库存，增加该军装备值。</td>
+            </tr>
+            <tr>
+              <td><code>secret_order</code></td>
+              <td>锦衣卫/司礼监/特定臣</td>
+              <td><code>__secret_order_registered__&lt;id&gt;</code></td>
+              <td>绕过朝堂下达暗查密令。支持 <code>issue</code>(下达)、<code>progress</code>(记月度进展)、<code>submit</code>(提交核议)、<code>rush</code>(催办)。</td>
+            </tr>
+            <tr>
+              <td><code>present_consort_candidates</code></td>
+              <td>司礼监/礼部专属</td>
+              <td>返回格式化秀女名单</td>
+              <td>司礼监从预设立绘池中为皇帝呈报待选秀女，建档为 <code>candidate</code> 状态，待降诏册封。</td>
+            </tr>
+            <tr>
+              <td><code>cultivate_consort</code></td>
+              <td>后宫妃嫔寝殿召见</td>
+              <td>返回调教结果</td>
+              <td>皇帝要妃嫔学习才艺或改变性格，永久写入 <code>character_traits</code> 表，下次召见时改变提示词。</td>
+            </tr>
+            <tr>
+              <td><code>search_memories</code></td>
+              <td>所有大臣</td>
+              <td>返回历史起居注记录</td>
+              <td>按关键词或年月检索历史章节记忆，使大臣回答皇帝追问旧事时有据可查。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 7. 月末推演与四模块抽取 -->
+    <section id="simulation-extraction">
+      <h2 class="section-title"><i class="fa-solid fa-scale-balanced"></i> 7. 月末推演与四模块抽取深度剖析</h2>
+      <p>
+        游戏的结算逻辑在 <code>ming_sim/decree.py</code> 和 <code>ming_sim/simulation.py</code> 中实现。其核心精髓在于<b>「先宏观推演写大明邸报，再由四大档房书办分别从邸报中提取确定性的结构化 JSON」</b>。
+      </p>
+
+      <div class="tabs-container">
+        <div class="tabs-header">
+          <button class="tab-btn active" onclick="switchTab(event, 'tab-sim')">推演日讲官 (Season Simulator)</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tab-internal')">档房·内政财政 (Internal)</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tab-military')">档房·军务外势 (Military)</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tab-issues')">档房·局势事项 (Issues)</button>
+          <button class="tab-btn" onclick="switchTab(event, 'tab-personnel')">档房·人事密令 (Personnel)</button>
+        </div>
+
+        <div id="tab-sim" class="tab-pane active">
+          <h4 class="h4-title"><i class="fa-solid fa-book-open"></i> 月末推演日讲官 (Season Simulator)</h4>
+          <p>输入全量压缩盘面（含建筑、省份、军队 TSV 表，在办事项，近月起居注，生效中密令，本月诏书）。</p>
+          <div class="callout callout-gold">
+            <div class="callout-title">邸报撰写规范与笔法：</div>
+            <ul style="padding-left:18px; font-size:0.88rem; margin:0;">
+              <li><b>总标题：</b>一句五言或七言诗，切中当月最痛之事。</li>
+              <li><b>章节叙事：</b>3-6 个独立章节，按真实发生的因果链展开，写明银两数、死伤数、派系掣肘、地方暗流。</li>
+              <li><b>特设章节：</b>「陛下未知者」（用 <code>&lt;secret&gt;</code> 标签包裹暗线细节，落库时对玩家隐藏详细内幕，但进档房抽取）、「待办未解」、「人事除目」。</li>
+              <li><b>纠偏抉择 (HITL)：</b>当承办人遇到无法自行解决的阻力时，在末尾输出 <code>&lt;&lt;DECISION&gt;&gt;...&lt;&lt;END&gt;&gt;</code> 块，供崇祯帝亲裁。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div id="tab-internal" class="tab-pane">
+          <h4 class="h4-title"><i class="fa-solid fa-coins"></i> 档房书办·内政财政 (score-extractor-internal)</h4>
+          <p>专职抽取民生指标、一次性财政收支、各省指标变化与派系阶级变动。</p>
+          <pre>
+{
+  "国势变化": { "国库": 0, "内库": 0, "民心": -2, "皇威": 1 },
+  "钱粮收支": [
+    { "账户": "国库", "增量": -5.0, "分类": "赈灾", "原因": "陕北饥荒拨发赈济" }
+  ],
+  "派系变化": { "东林": { "满意": -3, "影响力": 1 } },
+  "阶级变化": { "士绅": { "满意": -4, "影响力": 0 } },
+  "地区变化": {
+    "shaanxi": { "动乱": -5, "民心": 4, "隐田": -20, "官民田": 20 }
+  },
+  "财政制度变化": [
+    { "键": "宗室禄米_rate", "模式": "set_value", "数值": 80, "原因": "宗室禄米实发率削两成" }
+  ]
+}</pre>
+        </div>
+
+        <div id="tab-military" class="tab-pane">
+          <h4 class="h4-title"><i class="fa-solid fa-shield-halved"></i> 档房书办·军务外势 (score-extractor-military_external)</h4>
+          <p>专职抽取军队战力变动、新建编制、军械持有与四方蛮夷势力态势。</p>
+          <pre>
+{
+  "军队变化": {
+    "guanning": { "士气": 3, "训练": 2, "装备": 1, "欠饷": -10 }
+  },
+  "新建军队": [
+    { "军队": "天雄军", "驻地": "大名府", "兵种": "重装步兵", "人数": 10000, "月费": 4, "统帅": "卢象升" }
+  ],
+  "军备变化": {
+    "guanning": { "火炮队": { "红夷大炮": 10 } }
+  },
+  "四方动向": {
+    "houjin": "八旗兵集结沈阳，似有西犯锦州之意",
+    "bandits": "高迎祥转战商洛山中，声势稍抑"
+  }
+}</pre>
+        </div>
+
+        <div id="tab-issues" class="tab-pane">
+          <h4 class="h4-title"><i class="fa-solid fa-list-check"></i> 档房书办·局势推演 (score-extractor-issues)</h4>
+          <p>专职抽取长期政务进度条（Bar 0-100）的推进、新事项立项与结案。</p>
+          <pre>
+{
+  "局势推进": [
+    { "局势编号": 101, "进度增量": 15, "阶段": "清丈有司已核定第一批隐田清册", "叙述": "毕自严力排众议，江南清丈初见成效" }
+  ],
+  "新立局势": [
+    {
+      "标题": "关宁军饷银加急解运", "类型": "initiative", "承办人": "孙承宗",
+      "当前进度": 20, "解决条件": "饷银全数运抵山海关", "失败条件": "兵丁哗变或中途被劫",
+      "解决效果": { "metrics": { "皇威": 3 }, "armies": { "guanning": { "士气": 10 } } }
+    }
+  ],
+  "结案局势": [ 98 ]
+}</pre>
+        </div>
+
+        <div id="tab-personnel" class="tab-pane">
+          <h4 class="h4-title"><i class="fa-solid fa-user-tie"></i> 档房书办·人事密令 (score-extractor-personnel_secret)</h4>
+          <p>专职抽取朝堂人事任免、官员下狱罢官、密令最终办结判定与崇祯帝结局。</p>
+          <pre>
+{
+  "人事变更": [
+    { "姓名": "孙传庭", "新官职": "陕西巡抚", "新官署类别": "地方" }
+  ],
+  "人物状态变化": [
+    { "姓名": "魏忠贤", "状态": "imprisoned", "原因": "诏狱查实谋逆罪状，着即下狱" }
+  ],
+  "密令结案": [
+    { "密令编号": 12, "结果": "done", "推演备注": "锦衣卫查实崔呈秀贪墨辽饷铁证" }
+  ],
+  "崇祯结局": null
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. 财政、承办与惯性数学模型 -->
+    <section id="mathematical-models">
+      <h2 class="section-title"><i class="fa-solid fa-calculator"></i> 8. 财政、承办与惯性数学模型</h2>
+      <p>为了保证模拟世界具备严谨的数值闭环与历史物理实感，系统设计了多套经过严格参数调优的数学公式。</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">1. 省级财政到账率模型 (Fiscal Efficiency)</span>
+            <span class="card-badge badge-gold">ming_sim/flows.py</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            两京十三省税银解运入国库时，并非按账面全额到账，而是受<b>士绅阻力、地方腐败度、民变动乱</b>三重折损：
+          </p>
+          <div class="callout callout-gold" style="font-family:var(--font-mono); font-size:0.85rem;">
+            eff = clamp(1.0 - (gentry/100)*0.55 - (corruption/100)*0.45 - max(0, unrest-20)/100*0.30, 0.05, 1.00)
+            <br><br>
+            • 田赋实收 = round(官民田万亩 × 田赋亩率 / 10000 / 12 × eff)<br>
+            • 辽饷实收 = round(官民田万亩 × 辽饷亩率 / 10000 / 12 × eff × (0.5 + 皇威/200))<br>
+            • 盐税/商税实收 = round(账面应征月额 × eff)<br>
+            • 皇庄地租(入内库) = round(皇庄万亩 × 皇庄亩率 / 10000 / 12) (皇庄直辖不受士绅折扣)
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">2. 承办人属性修正模型 (Assignee Modifier)</span>
+            <span class="card-badge badge-cyan">ming_sim/issues.py:1200</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            每条在办局势指定大臣承办时，承办人不直接加减绝对点数，而是对当月基准进度施加<b>带符号百分比修正（帝国修正机制）</b>：
+          </p>
+          <div class="callout" style="font-family:var(--font-mono); font-size:0.85rem;">
+            修正% = clamp(<br>
+            &nbsp;&nbsp;(能力 - 50) × 1.6% +<br>
+            &nbsp;&nbsp;(忠诚 - 50) × 0.6% +<br>
+            &nbsp;&nbsp;(清廉 - 50) × 0.5% +<br>
+            &nbsp;&nbsp;(胆略 - 50) × 0.4% +<br>
+            &nbsp;&nbsp;(领域专业度 - 50) × 0.8%,<br>
+            &nbsp;&nbsp;-80%, 80%<br>
+            )<br><br>
+            若基准进度 ≥ 0：最终增量 = round(基准 × (1 + 修正% / 100))<br>
+            若基准进度 &lt; 0：最终增量 = round(基准 × (1 - 修正% / 100))
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">3. 事项惯性与自然漂移模型 (Inertia & Ongoing Decay)</span>
+          <span class="card-badge badge-crimson">ming_sim/issues.py:1130</span>
+        </div>
+        <p style="font-size:0.88rem; color:var(--text-muted);">
+          未被本月圣旨或推演主动触及的事项不会静止。系统会根据其 <code>inertia</code>（惯性值）进行自然漂移：
+        </p>
+        <ul style="padding-left:20px; font-size:0.88rem; color:var(--text-main);">
+          <li><b>负向危机事项 (Crisis):</b> 如「陕北流民聚众」，若无人办理，每月由于责任无着与惯性使进度条向恶端下滑（<code>bar_value -= inertia</code>），直至触发 <code>fail_condition</code> 爆发起义。</li>
+          <li><b>承办人缺位惩罚:</b> 若事项无承办人，自动施加 <code>net_pct = -35%</code> 的延误惩罚；承办人死亡或被罢官则按无人实办处理。</li>
+          <li><b>持续效果扣费 (ongoing_effects):</b> 事项在进行期间每回合自动扣减国库维护专款、边防压力加成，结算后自动落账。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 9. 前沿工程与Token缓存优化 -->
+    <section id="engineering-optimizations">
+      <h2 class="section-title"><i class="fa-solid fa-bolt"></i> 9. 前沿工程与 Token 缓存优化实践</h2>
+      <p>
+        模拟器要支撑长达 240 回合的长线游玩，必须彻底解决大模型长上下文的延迟与费用瓶颈。本项目在 <code>ming_sim/agents.py</code> 和 <code>ming_sim/simulation.py</code> 中实现了多项开创性的 Prompt 缓存工程优化。
+      </p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-table"></i> 真 TSV 表格压缩</span>
+            <span class="card-badge badge-emerald">-25% Token 消耗</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            抛弃传统的冗余 <code>List[Dict]</code> JSON 格式，将 <code>regions</code>、<code>armies</code>、<code>buildings</code> 等大型表格转为单行 Tab 分隔的真 TSV 文本块，去除了海量的字段名转义字符。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-memory"></i> 字节级前缀一致对齐</span>
+            <span class="card-badge badge-gold">85%+ Cache Hit</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            <code>Simulator</code> 与 4 个 <code>Extractor</code> 的 System Prompt 开头采用同源 <code>build_simulator_context()</code> 构造，首字节完全一致。Simulator 率先运行创建缓存，后续 4 个 Extractor 瞬间命中共享缓存。
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fa-solid fa-arrow-down-wide-short"></i> 稳态在前，易变在后</span>
+            <span class="card-badge badge-cyan">防止前缀分叉</span>
+          </div>
+          <p style="font-size:0.85rem; color:var(--text-muted);">
+            在组装 Prompt 时，严格按照「最稳定的世界规则 &rarr; 变化极小的建筑/科技预设 &rarr; 相对稳定的官员名册 &rarr; 易变的地区军队数值 &rarr; 当月诏书与即时指令」顺序排列，最大限度保住前缀缓存命中长度。
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="fa-solid fa-tower-broadcast"></i> SSE (Server-Sent Events) 打字机与思考流管道</span>
+          <span class="card-badge badge-purple">web_app.py:2800+</span>
+        </div>
+        <p style="font-size:0.88rem; color:var(--text-muted);">
+          Web 界面采用多通道 SSE 实时推流。在 <code>/turn/resolve/stream</code> 中，后端通过后台工作线程异步运行 <code>GameSession.resolve_turn()</code>，利用线程安全的 <code>queue.Queue</code> 将阶段状态 <code>stage</code>、模型思考过程 <code>thinking</code>、正文文字流 <code>text</code> 以及最终结算数据 <code>done</code> 实时泵送到前端，带来流畅的古风奏折阅读体验。
+        </p>
+      </div>
+    </section>
+
+    <!-- 10. 全源码目录与函数索引 -->
+    <section id="codebase-index">
+      <h2 class="section-title"><i class="fa-solid fa-folder-tree"></i> 10. 全源码目录与函数速查索引</h2>
+      
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>模块路径</th>
+              <th>主要类 / 核心函数</th>
+              <th>核心功能与调用关系</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>ming_sim/session.py</code></td>
+              <td><code>GameSession</code><br><code>begin_turn()</code><br><code>chat()</code><br><code>resolve_turn()</code><br><code>end_turn()</code></td>
+              <td>会话状态机。掌控月度回合流转、拦截大臣哨兵工具调用、执行自动存档与两阶段颁诏推演。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/decree.py</code></td>
+              <td><code>resolve_directives()</code><br><code>write_decree_with_agno()</code><br><code>_settle_after_narrative()</code></td>
+              <td>结算主控制器。执行固定月度财政入账、调用推演 Agent、解析 HITL、调度四大档房书办与记忆沉淀。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/simulation.py</code></td>
+              <td><code>build_simulator_payload()</code><br><code>simulate_season_with_payload()</code><br><code>extract_scores_by_modules_with_agno()</code></td>
+              <td>推演与打分引擎。组装 TSV 压缩盘面、流式运行 Simulator、串行暖缓存+并行运行 4 模块 Extractor。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/agents.py</code></td>
+              <td><code>create_season_simulator_agent()</code><br><code>create_score_extractor_module_agent()</code><br><code>create_decree_writer_agent()</code><br><code>run_agent_stream_text()</code></td>
+              <td>Agent 工厂与底层调用层。封装 Agno Agent 实例化、Model 参数派发、Token 计量与 JSON 修复兜底。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/registry.py</code></td>
+              <td><code>MinisterRegistry</code><br><code>create_minister_agent()</code><br><code>build_court_brief()</code></td>
+              <td>廷臣注册表。懒加载构建大臣/后宫 Agent，装配在朝名册、上月邸报、密令及专属 Tools/Skills。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/tools.py</code></td>
+              <td><code>build_minister_tools()</code><br><code>propose_directive()</code><br><code>secret_order()</code><br><code>adjust_tax()</code></td>
+              <td>御前工具箱。定义大臣御前调用的查账、查省、拟旨、密令、铨选、拨械等具体 Tool 实现与哨兵标记。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/flows.py</code></td>
+              <td><code>calc_province_fiscal()</code><br><code>apply_fixed_period_flows()</code><br><code>compute_budget_lines()</code></td>
+              <td>财政物理引擎。按省计算四税实收、综合到账率 eff、宗室禄米削减反噬、九边军饷与官俸核算。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/issues.py</code></td>
+              <td><code>apply_score_extraction()</code><br><code>apply_issue_inertia_and_ongoing()</code><br><code>_auto_issue_delta_by_assignee()</code></td>
+              <td>事项推进引擎。执行抽取数值落库、承办人五维修正算法、事项惯性自然漂移、解决/失败条件判定。</td>
+            </tr>
+            <tr>
+              <td><code>ming_sim/db/schema.py</code></td>
+              <td><code>_SchemaMixin.init_schema()</code></td>
+              <td>数据库 DDL。定义 41 张 SQLite 表结构、索引与历史日志关联外键。</td>
+            </tr>
+            <tr>
+              <td><code>web_app.py</code></td>
+              <td><code>WebGame</code><br><code>app = FastAPI()</code><br><code>/court/chat/stream</code><br><code>/turn/resolve/stream</code></td>
+              <td>FastAPI Web 接入层。提供全套 RESTful API、SSE 流式事件泵、存档热替换与前端静态资源托管。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <button id="back-to-top" onclick="window.scrollTo({top:0, behavior:'smooth'})" title="返回顶部">
+    <i class="fa-solid fa-arrow-up"></i>
+  </button>
+
+  <script>
+    // 初始化 Mermaid
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#161922',
+        primaryColor: '#eab308',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#eab308',
+        lineColor: '#06b6d4',
+        secondaryColor: '#ef4444',
+        tertiaryColor: '#1e2230'
+      }
+    });
+
+    // 选项卡切换功能
+    function switchTab(evt, tabId) {
+      const tabPane = document.getElementById(tabId);
+      const container = tabPane.closest('.tabs-container');
+      
+      const allPanes = container.querySelectorAll('.tab-pane');
+      allPanes.forEach(pane => pane.classList.remove('active'));
+      
+      const allBtns = container.querySelectorAll('.tab-btn');
+      allBtns.forEach(btn => btn.classList.remove('active'));
+      
+      tabPane.classList.add('active');
+      evt.currentTarget.classList.add('active');
+    }
+
+    // 侧边栏滚动监听高亮
+    window.addEventListener('scroll', () => {
+      const sections = document.querySelectorAll('section');
+      const navLinks = document.querySelectorAll('.nav-link');
+      let current = '';
+      
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        if (pageYOffset >= sectionTop - 120) {
+          current = section.getAttribute('id');
+        }
+      });
+      
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === `#${current}`) {
+          link.classList.add('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
