@@ -166,10 +166,10 @@ def write_ming_history(
     state: GameState,
 ) -> str:
     from ming_sim.context import ENDING_LABELS
-    model = create_chat_model(llm_config, role="historian")
+    model = create_chat_model(llm_config)
     agent = Agent(
         model=model,
-        system_prompt=_HISTORIAN_PROMPT,
+        instructions=[_HISTORIAN_PROMPT],
         markdown=False,
     )
 
