@@ -2095,6 +2095,11 @@ def apply_issue_inertia_and_ongoing(
 
     for row in active:
         issue_id = int(row["id"])
+        
+        row = db.conn.execute("SELECT * FROM issues WHERE id=?", (issue_id,)).fetchone()
+        if row is None or row["status"] != "active":
+            continue
+            
         bar = int(row["bar_value"])
         inertia = int(row["inertia"])
 
@@ -2122,7 +2127,7 @@ def apply_issue_inertia_and_ongoing(
                     _apply_terminal_issue_effects(db, state, effect, issue_id, str(new_row["title"]), outcome)
                     continue
                 row = db.conn.execute("SELECT * FROM issues WHERE id=?", (issue_id,)).fetchone()
-                if row is None:
+                if row is None or row["status"] != "active":
                     continue
                 bar = int(row["bar_value"])
 
@@ -2141,7 +2146,11 @@ def apply_issue_inertia_and_ongoing(
 
         # metrics
         metric_part: Dict[str, int] = {}
-        for k, v in (ongoing.get("metrics") or {}).items():
+        metrics_dict = ongoing.get("metrics")
+        if not isinstance(metrics_dict, dict):
+            metrics_dict = {}
+            
+        for k, v in metrics_dict.items():
             if k not in ISSUE_METRIC_KEYS:
                 continue
             try:
@@ -2152,18 +2161,13 @@ def apply_issue_inertia_and_ongoing(
             if scaled == 0:
                 continue
             cap = ISSUE_METRIC_LOCK_CAPS.get(k, 5)
-            already = period_metric_acc.get(k, 0)
-            remaining = cap - abs(already)
-            if remaining <= 0:
-                continue
-            if scaled > 0:
-                allowed = min(scaled, remaining)
-            else:
-                allowed = max(scaled, -remaining)
+            current = period_metric_acc.get(k, 0)
+            new_total = max(-cap, min(cap, current + scaled))
+            allowed = new_total - current
             if allowed == 0:
                 continue
+            period_metric_acc[k] = new_total
             state.metrics[k] = int(state.metrics.get(k, 0)) + allowed
-            period_metric_acc[k] = already + allowed
             metric_part[k] = allowed
 
         # economy

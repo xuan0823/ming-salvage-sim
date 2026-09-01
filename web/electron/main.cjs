@@ -130,6 +130,11 @@ const startBackend = async () => {
 
   backend.stdout.on("data", (chunk) => process.stdout.write(`[fastapi] ${chunk}`));
   backend.stderr.on("data", (chunk) => process.stderr.write(`[fastapi] ${chunk}`));
+  backend.on("error", (error) => {
+    log(`FastAPI failed to start: ${error}`);
+    backend = null;
+    if (!app.isQuitting) app.quit();
+  });
   backend.on("exit", (code, signal) => {
     log(`FastAPI exited code=${code ?? "null"} signal=${signal ?? "null"}`);
     backend = null;

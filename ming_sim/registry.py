@@ -101,7 +101,7 @@ def build_court_roster(context: CourtContext) -> str:
     """
     db = context.db
     lines: List[str] = []
-    for c in _ctx().characters.values():
+    for c in list(_ctx().characters.values()):
         if c.office_type == "后宫":
             continue
         if getattr(c, "power_id", "ming") != "ming":
@@ -127,7 +127,7 @@ def build_court_roster_index(context: CourtContext) -> str:
     """人物数超 100 时用索引替代完整名册：仅姓名+官署+状态，完整信息由 query_court_roster tool 提供。"""
     db = context.db
     lines: List[str] = []
-    for c in _ctx().characters.values():
+    for c in list(_ctx().characters.values()):
         if c.office_type == "后宫":
             continue
         if getattr(c, "power_id", "ming") != "ming":
@@ -466,7 +466,7 @@ def create_minister_agent(
         court_brief = build_court_brief(context)
         # 运行时判断规模：人物>100 或军队>30 切换为 tool 按需查，否则全量注入 system
         active_char_count = sum(
-            1 for ch in _ctx().characters.values()
+            1 for ch in list(_ctx().characters.values())
             if ch.office_type != "后宫"
             and getattr(ch, "power_id", "ming") == "ming"
             and context.db.get_character_status(ch.name)[0] != "offstage"

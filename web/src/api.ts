@@ -73,7 +73,7 @@ export const api = async <T,>(path: string, options?: RequestInit): Promise<T> =
     throw new ApiRequestError(normalizeApiError(error, response.statusText), response.statusText);
   }
   const payload = await response.json();
-  void forwardSteamEvents(payload);
+  forwardSteamEvents(payload).catch(console.error);
   return payload;
 };
 
@@ -114,7 +114,8 @@ export const streamChat = async (
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
+  try {
+    while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
     const messages = buffer.split("\n\n");
@@ -134,6 +135,9 @@ export const streamChat = async (
     }
 
     if (done) break;
+  }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 
   throw new Error("流式回复中断，未收到完成事件。");
@@ -166,7 +170,8 @@ export const streamCourtChat = async (
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
+  try {
+    while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
     const messages = buffer.split("\n\n");
@@ -192,6 +197,9 @@ export const streamCourtChat = async (
     }
 
     if (done) break;
+  }
+  } finally {
+    reader.cancel().catch(() => {});
   }
 
   throw new Error("朝会流式回复中断，未收到完成事件。");
@@ -278,7 +286,8 @@ export const streamScenarioChat = async (
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
+  try {
+    while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
     const messages = buffer.split("\n\n");
@@ -296,6 +305,9 @@ export const streamScenarioChat = async (
       }
     }
     if (done) break;
+  }
+  } finally {
+    reader.cancel().catch(() => {});
   }
   throw new Error("对话中断，未收到完成事件。");
 };

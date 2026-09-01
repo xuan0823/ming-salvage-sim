@@ -28,6 +28,10 @@ import io
 
 
 class _NullStream(io.TextIOBase):
+    @property
+    def encoding(self) -> str:
+        return "utf-8"
+
     def isatty(self) -> bool:
         return False
 
@@ -106,10 +110,13 @@ def _wait_server_ready(url: str, timeout: float = 15.0) -> bool:
     只要 server 有响应说明 uvicorn 已 listen；urlopen 对 4xx/5xx 会抛 HTTPError，
     那也算就绪——区分是 connection error 还是 HTTP 响应。"""
     import urllib.error
+    import urllib.request
+    proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(proxy_handler)
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(url, timeout=0.5)
+            opener.open(url, timeout=0.5)
             return True
         except urllib.error.HTTPError:
             # 有 HTTP 响应（如 404）= server 已就绪

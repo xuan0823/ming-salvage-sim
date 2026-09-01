@@ -97,6 +97,14 @@ class _CharactersMixin:
                 "UPDATE characters SET status=?, status_reason=?, status_changed_turn=?, office='', office_type='' WHERE name=?",
                 (status, reason[:200], state.turn, name),
             )
+            self.conn.execute(
+                "UPDATE issues SET assignee='' WHERE assignee=? AND status IN ('active', 'draft', 'pending')",
+                (name,)
+            )
+            self.conn.execute(
+                "DELETE FROM secret_orders WHERE minister_name=?",
+                (name,)
+            )
         else:
             self.conn.execute(
                 "UPDATE characters SET status=?, status_reason=?, status_changed_turn=? WHERE name=?",
@@ -179,18 +187,22 @@ class _CharactersMixin:
                 "UPDATE characters SET office=? WHERE name=?",
                 (office, name),
             )
-        self.conn.execute(
-            """
-            INSERT INTO character_offices (character_name, office_title, office_type, source)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(character_name) DO UPDATE SET
-                office_title = excluded.office_title,
-                office_type = excluded.office_type,
-                source = excluded.source,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (name, office, eff_type, source),
-        )
+        import sqlite3
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO character_offices (character_name, office_title, office_type, source)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(character_name) DO UPDATE SET
+                    office_title = excluded.office_title,
+                    office_type = excluded.office_type,
+                    source = excluded.source,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (name, office, eff_type, source),
+            )
+        except sqlite3.IntegrityError as e:
+            raise ValueError(f"设置官职失败（可能是部门类型 {eff_type} 未注册）: {e}")
         self.conn.commit()
         if name in self.content.characters:
             self.content.characters[name].office = office
@@ -542,13 +554,17 @@ class _CharactersMixin:
         ).fetchone()
         if exists:
             return False
-        self.conn.execute(
-            """
-            INSERT INTO skill_grants (character_name, skill_id, granted_by, source_turn, active)
-            VALUES (?, ?, ?, ?, 1)
-            """,
-            (character_name, skill_id, granted_by, state.turn),
-        )
+        import sqlite3
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO skill_grants (character_name, skill_id, granted_by, source_turn, active)
+                VALUES (?, ?, ?, ?, 1)
+                """,
+                (character_name, skill_id, granted_by, state.turn),
+            )
+        except sqlite3.IntegrityError:
+            return False
         self.conn.commit()
         return True
 

@@ -314,7 +314,6 @@ class _IssuesMixin:
             "UPDATE issues SET budget_pool=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (round(new_pool, 4), int(issue_id)),
         )
-        self.conn.commit()
         return actual
 
     def delete_manual_issue(self, issue_id: int) -> bool:
@@ -569,7 +568,6 @@ class _IssuesMixin:
              category, reason, purpose, target_kind, target_id),
         )
         self.sync_economy_accounts(state)
-        self.conn.commit()
         return actual
 
     # ── 帝国修正（legacies 表）：结案留下的长期百分比修正符，落账层放大/缩小增量 ────

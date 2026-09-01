@@ -970,13 +970,15 @@ export function MinisterDetailDialog({
       .filter(([, value]) => value !== undefined && value !== null && value !== "")
       .map(([key, value]) => [key, formatFieldValue(key, value)])
     : [];
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, []);
   const dialog = (
     <div className="minister-detail-layer" role="dialog" aria-modal="true" aria-label={`人物详情：${minister.name}`}>
       <div className="minister-detail-scrim" onClick={onClose} />

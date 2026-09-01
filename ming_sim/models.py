@@ -6,7 +6,10 @@ CourtContext 的 state/db 注解用字符串前向引用，避免 import db.py�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Literal
+
+if TYPE_CHECKING:
+    from ming_sim.db import GameDB
 
 from ming_sim.constants import ECONOMY_ACCOUNTS
 
@@ -59,7 +62,7 @@ class Character:
     historical_death_month: int = 0  # 1-12，0=未指定
     debut_year: int = 0  # 历史登场年（公历，0=开局即在场）
     debut_month: int = 0  # 1-12，0=不限月
-    status: str = "active"  # active | offstage | dismissed | imprisoned | exiled | retired | dead
+    status: Literal["active", "offstage", "dismissed", "imprisoned", "exiled", "retired", "dead"] = "active"
     summary: str = ""  # 人物简介，后宫/大臣均有
     portrait_id: str = ""  # 头像文件标识：空=无专属；"minister_pool_3"=用第3号预设头像
 
@@ -84,7 +87,7 @@ class Event:
     trigger_end_month: int = 0  # 候选窗口结束月（0=年内任意月）
     precondition: str = ""  # 触发前提的人话说明，喂 simulator 由 LLM 判定（叙事背景+结果烈度/走向，可列结果分档）；不走程序求值（触发与否的程序闸看 require/trigger_gate）
     require: Dict[str, object] = field(default_factory=dict)  # 结构化触发前提（布尔树/扁平 dict，见 gating.evaluate_gate）；空=无可证伪前提（历史既定型）。require 不过则 node 不进候选/不触发
-    event_type: str = "situation"  # situation=转 bar issue；node=只播报不转 issue；ending=交结局判定
+    event_type: Literal["situation", "node", "ending"] = "situation"
     trigger_gate: Dict[str, str] = field(default_factory=dict)  # seed 候选门槛：{metric: 比较式}，全满足才进候选
     auto_trigger: bool = False  # True=gate 达标即由程序硬立项，绕过 LLM 因果判定（不进候选池等 extractor 决定）
     # 以下为可选「精调 issue 字段」：原 opening_crises 那种手调危机用，立项时 event_to_issue 优先读这些，
@@ -275,7 +278,7 @@ class GameState:
     year: int = 1627
     period: int = 10
     turn: int = 1
-    turn_phase: str = "summoning"  # summoning | reviewing | issued —— 见 session.TurnPhase
+    turn_phase: Literal["summoning", "reviewing", "awaiting_decision", "issued"] = "summoning"
     ended: bool = False  # 结局已触发：游戏终结，拒绝继续召见/结算
     ending_status: str = ""  # 结局类型（context.ENDING_*），ended=True 时有值
     metrics: Dict[str, float] = field(
@@ -306,7 +309,7 @@ class GameState:
 @dataclass
 class CourtContext:
     state: "GameState"
-    db: "object"  # GameDB；用 object 注解避免 import db.py 造成环
+    db: "GameDB"  # 用前向注解避免 import db.py 造成环
     previous_summary: str = ""
 
 

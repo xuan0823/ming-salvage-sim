@@ -1251,7 +1251,7 @@ function StructuredDirectiveEditor({
       }
       return next;
     });
-  }, [template?.id]);
+  }, [template]);
 
   React.useEffect(() => {
     if (template?.id !== "tax_reform") return;

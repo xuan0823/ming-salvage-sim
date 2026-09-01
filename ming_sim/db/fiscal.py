@@ -306,13 +306,13 @@ class _FiscalMixin:
             "SELECT COALESCE(MAX(sort_order), 0) + 10 FROM fiscal_config"
         ).fetchone()[0]
         self.conn.execute(
-            "INSERT INTO fiscal_config "
+            "INSERT OR IGNORE INTO fiscal_config "
             "(key, value, kind, budget_role, account, direction, display, sort_order, note, formula, basis, rate_unit) "
             "VALUES (?, ?, 'base', 'fixed', ?, ?, ?, ?, ?, ?, ?, ?)",
             (base_key, max(0, init_value), account, direction, display, sort_order, note, formula, basis, rate_unit),
         )
         self.conn.execute(
-            "INSERT INTO fiscal_config "
+            "INSERT OR IGNORE INTO fiscal_config "
             "(key, value, kind, budget_role, account, direction, display, sort_order, note, formula, basis, rate_unit) "
             "VALUES (?, 100, 'rate', 'fixed', ?, ?, ?, ?, ?, ?, ?, ?)",
             (rate_key, account, direction, display, sort_order, f"{display}实收率%", "", "", ""),
