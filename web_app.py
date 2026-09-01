@@ -2816,7 +2816,7 @@ async def api_menu_load_save(name: str) -> Dict[str, Any]:
             raise HTTPException(status_code=412, detail=_llm_error_detail(exc))
         except SystemExit as exc:
             raise HTTPException(status_code=500, detail=f"当前剧本文件损坏：{exc}，请到自定义剧本修正或停用。")
-        web_game.load_save(name)
+        await asyncio.to_thread(web_game.load_save, name)
         return {"state": web_game.state_payload()}
     finally:
         _GAME_OP_LOCK.release()
@@ -3810,11 +3810,20 @@ class WriteDecreeRequest(BaseModel):
 
 @app.post("/api/decree/write")
 async def api_write_decree(request: WriteDecreeRequest = WriteDecreeRequest()) -> Dict[str, Any]:
-    try:
+    """拟写正式诏书（LLM 润色，可达分钟级）：搬到线程执行，事件循环不冻结。"""
+    _try_game_op_or_409()
+
+    def _run() -> str:
         existing = (get_game().session.last_decree or "").strip()
-        decree = get_game().session.write_decree() if request.force or not existing else existing
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
+        return get_game().session.write_decree() if request.force or not existing else existing
+
+    try:
+        try:
+            decree = await asyncio.to_thread(_run)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+    finally:
+        _GAME_OP_LOCK.release()
     return {"decree": decree}
 
 
@@ -4101,7 +4110,7 @@ async def api_reset_game() -> Dict[str, Any]:
     """清空主 DB 重开新局。存档目录保留。"""
     _try_game_op_or_409()
     try:
-        get_game().reset_game()
+        await asyncio.to_thread(get_game().reset_game)
         return steam_events.with_events(
             {"state": get_game().state_payload()},
             [steam_events.add_stat(steam_events.STAT_RUNS_STARTED)],
