@@ -70,7 +70,7 @@ export function MenuPage({
   return (
     <div className="menu-screen">
       <div className="menu-poster">
-        <img src="/steam_assets/主宣传图.jpg" alt="明末：力挽狂澜" />
+        <img src="/menu-start.webp" alt="明末：力挽狂澜" />
       </div>
 
       <h1 className="menu-title">明末：力挽狂澜</h1>

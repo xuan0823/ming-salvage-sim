@@ -4,7 +4,7 @@ import { Check, Crown, Edit3, Landmark, Loader2, Lock, MessageSquare, Plus, Scro
 import { api } from "../api";
 import { ExtractionView } from "./extraction";
 import { FullscreenModal, MinisterPortrait, cacheBust } from "./hud";
-import { formatClosedEffect } from "../format";
+import { briefTreasury, formatClosedEffect } from "../format";
 import { ManualIssueEditor } from "./situation";
 import type { ChatDisplayMessage, ChatMessage, ClosedIssue, Directive, EndingPayload, GameState, HistoryDetail, HistoryTurnItem, Minister, SecretOrder, StructuredDirective, StructuredDirectiveTemplate, Suggestion } from "../types";
 
@@ -972,11 +972,45 @@ export function EdictModal({
     );
   }
 
-  // phase === "desk"：御案理政
+  // phase === "desk"：御案拟诏（图四式：顶置通报条 + 左「诏书建议」 + 中央诏书卷轴四栏 + 右竖排钮 + 右下黑钮）
+  const EDICT_PARTS = [
+    { key: "military", label: "军务", icon: "军", placeholder: "请输入军务事项内容。\n例如：命毕自严核拨关宁、山海关、蓟镇辽饷一百五十二万两，核清欠饷。" },
+    { key: "domestic", label: "内政", icon: "政", placeholder: "请输入内政事项内容。\n例如：蠲免陕西、河南被灾州县本年田赋，遣御史驰驿赈济灾区。" },
+    { key: "diplomacy", label: "外交", icon: "外", placeholder: "请输入外交事项内容。\n例如：遣使宣谕朝鲜，命登莱巡抚备海船以通馈道。" },
+    { key: "other", label: "其他", icon: "其", placeholder: "请输入其他事项内容。\n例如：召对六部堂上官，议明春军兴钱粮。" },
+  ] as const;
+  const [edictParts, setEdictParts] = React.useState<Record<string, string>>({ military: "", domestic: "", diplomacy: "", other: "" });
+  const composeParts = (parts: Record<string, string>) =>
+    EDICT_PARTS.map((part) => (parts[part.key] || "").trim()).filter(Boolean).join("\n\n");
+  const composedEdict = composeParts(edictParts);
+  const patchPart = (key: string, value: string) => {
+    const next = { ...edictParts, [key]: value };
+    setEdictParts(next);
+    onDirectiveTextChange(composeParts(next)); // 与「御笔自拟」同通路：入诏草接口读 directiveText
+  };
+  const primaryLabel = draftDirectives.length ? "颁布诏书" : composedEdict.trim() ? "纳入诏草" : structuredDirectives.length ? "核销指令" : "结束本月";
+  const onPrimary = () => {
+    if (hasPending || busy) return;
+    if (draftDirectives.length) { void onWriteDecree(); return; }
+    if (composedEdict.trim()) { void onCreateDirective(); return; } // 四栏合稿先入诏草，随即可颁布
+    void onIssueDecree();
+  };
+  const monthCn = ["正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊"];
+  const reignYear = Math.max(1, state.turn.year - 1627 + 1);
   return (
     <div className="edict-stage edict-stage-desk">
-      <div className="desk-columns">
-        <section className="desk-pane desk-memorials">
+      <div className="edict-banners">
+        <div className="edict-banner">
+          <span className="edict-banner-tag">紫极</span>
+          <span>本月待核定拟旨 {pendingDirectives.length} 道{assignedActiveIssueCount ? " / " + assignedActiveIssueCount + " 件局势有承办" : ""}</span>
+        </div>
+        <div className="edict-banner">
+          <span className="edict-banner-tag">国库</span>
+          <span>{briefTreasury(state).join(" / ")}</span>
+        </div>
+      </div>
+      <div className="edict-desk-v2">
+        <section className="edict-suggest-panel">
           <div className="directive-list-head">
             <h2>本月指令{(allDirectives.length + structuredDirectives.length) ? ` · ${allDirectives.length + structuredDirectives.length} 道` : ""}</h2>
             {pendingDirectives.length > 1 && (
@@ -1047,37 +1081,71 @@ export function EdictModal({
               </div>
             )}
           </div>
-        </section>
 
-        <section className="desk-pane desk-compose">
-          <h2>固定指令</h2>
-          <button className="desk-add-btn fixed-directive-add" onClick={() => setStructuredEditorTarget(null)} disabled={!!busy || !structuredDirectiveTemplates.length}>
-            <Plus size={14} />新增固定指令
-          </button>
-          <h2>御笔自拟</h2>
-          <textarea
-            value={directiveText}
-            onChange={(event) => onDirectiveTextChange(event.target.value)}
-            placeholder="例如：命毕自严核拨关宁、山海关、蓟镇辽饷一百五十二万两..."
-          />
-          <button className="desk-add-btn" onClick={onCreateDirective} disabled={!!busy || !directiveText.trim()}>
-            <Edit3 size={14} />新增草案
-          </button>
-          <div className="desk-manual-issue">
+          <div className="edict-panel-actions">
+            <button className="parch-btn small" onClick={() => setStructuredEditorTarget(null)} disabled={!!busy || !structuredDirectiveTemplates.length}>
+              <Plus size={13} />固定指令
+            </button>
             <button
+              className="parch-btn small ghost"
               type="button"
-              className="desk-add-issue-btn"
               onClick={() => setIssueEditorOpen(true)}
               disabled={!!busy || decreeIssueFull}
-              title={decreeIssueFull ? `decree 局势已达上限（${maxDecreeIssues}），可在主菜单游戏设置调高` : "新建一条可追踪的长期圣旨/局势"}
+              title={decreeIssueFull ? "decree 局势已达上限（" + maxDecreeIssues + "），可在主菜单游戏设置调高" : "新建一条可追踪的长期圣旨/局势"}
             >
-              <Landmark size={14} />＋ 固定长期圣旨
+              <Landmark size={13} />长期圣旨 {decreeIssueCount}/{maxDecreeIssues}
             </button>
-            <small className="desk-manual-issue-hint">本质即新建局势 · {decreeIssueCount} / {maxDecreeIssues}</small>
+            {busy && <span className="busy-line"><Loader2 size={14} />{busy}...</span>}
+            {error && <span className="error-line" role="alert">{error}</span>}
           </div>
-          {busy && <div className="busy-line"><Loader2 size={15} />{busy}...</div>}
-          {error && <div className="error-line" role="alert">{error}</div>}
         </section>
+
+        <section className="edict-scroll-v2">
+          <header className="edict-scroll-head">
+            <h2>奉天承运皇帝诏曰</h2>
+            <span>崇祯{reignYear}年{monthCn[state.turn.period - 1] || ""}月 / 第 {state.turn.turn} 回合</span>
+          </header>
+          <div className="edict-scroll-parts">
+            {EDICT_PARTS.map((part) => {
+              const value = edictParts[part.key] || "";
+              return (
+                <label className="edict-part" key={part.key}>
+                  <span className="edict-part-mark" aria-hidden="true">{part.icon}</span>
+                  <span className="edict-part-box">
+                    <span className="edict-part-cap">{part.label}</span>
+                    <textarea
+                      maxLength={2000}
+                      placeholder={part.placeholder}
+                      value={value}
+                      onChange={(event) => patchPart(part.key, event.target.value)}
+                    />
+                    <em className="edict-part-count">{value.length}/2000</em>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <small className="edict-part-hint">
+            {composedEdict.trim() ? "四栏已合为一道诏草（" + composedEdict.length + " 字）：点右下「纳入诏草」入册，再「颁布诏书」请润色成文。" : "四栏留空即视为无新诏；有草案时右下「颁布诏书」会把草案润色成正式诏文。"}
+          </small>
+        </section>
+
+        <aside className="edict-rail-v2">
+          <button className="rail-btn-v2" onClick={onGoToCourtChat} disabled={!!busy} title="召大臣入宫议政">召集延议</button>
+          <button
+            className="rail-btn-v2"
+            onClick={onWriteDecree}
+            disabled={!!busy || !draftDirectives.length}
+            title={draftDirectives.length ? "以本月草案润色拟写正式诏书" : "须先在诏书建议中核定为草案"}
+          >诏书润色</button>
+        </aside>
+      </div>
+
+      <div className="edict-desk-footer-v2">
+        {hasPending && <small className="pending-hint">尚有 {pendingDirectives.length} 道大臣拟旨待朱批（准/驳），核定后方可结算。</small>}
+        <button className="issue-black-btn" onClick={onPrimary} disabled={!!busy || hasPending} title="先在右侧核定为草案，再颁布成诏；无新诏则直接结束本月">
+          {primaryLabel}
+        </button>
       </div>
 
       {dialogDirective ? (
@@ -1136,20 +1204,6 @@ export function EdictModal({
         />
       ) : null}
 
-      <div className="desk-footer">
-        {hasPending && <small className="pending-hint">尚有 {pendingDirectives.length} 道大臣拟旨待朱批（准/驳），核定后方可结算。</small>}
-        <button className="seal-btn-ghost" onClick={onGoToCourtChat} disabled={!!busy}>
-          <MessageSquare size={15} />去庭议
-        </button>
-        <button
-          className="seal-btn-compose"
-          onClick={draftDirectives.length ? onWriteDecree : onIssueDecree}
-          disabled={!!busy || hasPending}
-          title={draftDirectives.length ? "拟写正式诏书" : structuredDirectives.length ? "无新诏，按固定指令结算本月" : "无新诏，结算本月承办推进"}
-        >
-          {draftDirectives.length ? "拟诏 →" : structuredDirectives.length ? "核销指令 →" : "结束本月"}
-        </button>
-      </div>
     </div>
   );
 }
