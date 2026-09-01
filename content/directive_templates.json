@@ -102,5 +102,48 @@
       {"key": "protocol", "label": "礼制要求", "type": "text", "required": false, "placeholder": "如：礼部会同司礼监办理册礼"},
       {"key": "note", "label": "备注", "type": "textarea", "required": false}
     ]
+  },
+  {
+    "id": "emergency_relief",
+    "label": "赈济工赈",
+    "category": "民生",
+    "settlement_hint": "一次性或分期赈济；写清受赈地区、赈济方式（开仓/发银/以工代赈）、数额与承办要求。",
+    "compiled_text": "赈济工赈：对{region}施行{method}，拨发{relief_amount}，用途/要求：{purpose}。查核要求：{audit}。{note}",
+    "fields": [
+      {"key": "region", "label": "受赈地区", "type": "select", "option_source": "regions", "required": true, "placeholder": "选择地区"},
+      {"key": "method", "label": "赈济方式", "type": "select", "required": true, "options": ["开仓放粮", "以工代赈", "拨发内帑救急", "蠲免钱粮", "招抚流民授田"]},
+      {"key": "relief_amount", "label": "银两/粮石数额", "type": "text", "required": true, "placeholder": "如：粮五万石 / 银三万两"},
+      {"key": "purpose", "label": "用途/目标", "type": "text", "required": false, "placeholder": "如：平抑陕北粮价，修筑渠堤，安抚流民"},
+      {"key": "audit", "label": "查核要求", "type": "text", "required": false, "placeholder": "如：严查地方官侵吞"},
+      {"key": "note", "label": "备注", "type": "textarea", "required": false}
+    ]
+  },
+  {
+    "id": "maritime_trade_toll",
+    "label": "开海征商",
+    "category": "财政",
+    "settlement_hint": "海贸互市与市舶抽分；写清开放口岸、征收税则、商船管理与专款去向。",
+    "compiled_text": "开海征商：于{port}设榷抽分，施行{action}，税率/规条：{rate}，专款去向：{destination}。{note}",
+    "fields": [
+      {"key": "port", "label": "口岸/港口", "type": "select", "option_source": "regions", "required": true, "placeholder": "选择口岸（如福建、广东、浙江）"},
+      {"key": "action", "label": "动作", "type": "select", "required": true, "options": ["开放海禁互市", "增设市舶司抽分", "招抚海商海盗", "征收番舶饷银", "官营海运茶丝"]},
+      {"key": "rate", "label": "税率/规条", "type": "text", "required": false, "placeholder": "如：抽分二成 / 每船征饷千两"},
+      {"key": "destination", "label": "专款去向", "type": "text", "required": false, "placeholder": "如：充补辽饷 / 解解国库"},
+      {"key": "note", "label": "备注", "type": "textarea", "required": false}
+    ]
+  },
+  {
+    "id": "clan_donation",
+    "label": "宗勋劝捐",
+    "category": "财政",
+    "settlement_hint": "向宗室、勋贵、巨商或百官劝捐助饷；写清劝捐对象、方式、目标银两与赏罚。",
+    "compiled_text": "宗勋劝捐：向{target_group}推行{method}，筹银目标：{target_amount}，酬赏/惩处办法：{reward_punish}。{note}",
+    "fields": [
+      {"key": "target_group", "label": "劝捐对象", "type": "text", "required": true, "placeholder": "如：京营勋戚 / 留守宗室 / 江南巨室 / 朝廷百官"},
+      {"key": "method", "label": "劝捐方式", "type": "select", "required": true, "options": ["输银助饷换虚衔", "按爵例摊派义饷", "皇帝带头节缩并倡捐", "严厉追索私帑"]},
+      {"key": "target_amount", "label": "目标数额", "type": "text", "required": true, "placeholder": "如：三十万两"},
+      {"key": "reward_punish", "label": "赏罚/约束", "type": "text", "required": false, "placeholder": "如：立碑表彰，怠慢者削俸拿问"},
+      {"key": "note", "label": "备注", "type": "textarea", "required": false}
+    ]
   }
 ]
