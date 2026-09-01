@@ -37,6 +37,7 @@ Thumbs.db
 # Local AI assistant workspace
 .claude/
 .codex/
+.workbuddy-ai/
 CLAUDE.md
 web/public/portraits/_original_before_cutout
 
