@@ -23,6 +23,10 @@ function App() {
   const [hudStageSize, setHudStageSize] = React.useState({ w: 0, h: 0 });
   // 用 callback ref：stage 一挂载就接 ResizeObserver，避免 effect 时机竞态导致尺寸永远 0
   const hudStageCbRef = React.useCallback((el: HTMLDivElement | null) => {
+    if (hudStageRef.current && (hudStageRef.current as any).__ro) {
+      ((hudStageRef.current as any).__ro as ResizeObserver).disconnect();
+      delete (hudStageRef.current as any).__ro;
+    }
     hudStageRef.current = el;
     if (!el) return;
     const measure = () => setHudStageSize({ w: el.clientWidth, h: el.clientHeight });
@@ -70,6 +74,7 @@ function App() {
   const courtChatDeltaQueueRef = React.useRef<{ speaker: string; delta: string }[]>([]);
   const courtChatDrainTimerRef = React.useRef<number | null>(null);
   const courtChatAbortRef = React.useRef<AbortController | null>(null);
+  const courtChatBubbleTimerRef = React.useRef<number | null>(null);
   const [composerHint, setComposerHint] = React.useState("");
   const [input, setInput] = React.useState("");
   const [directiveText, setDirectiveText] = React.useState("");
@@ -108,7 +113,7 @@ function App() {
     setSelectedNodeId((current) => current || data.map_nodes[0]?.id || "");
     setDecree(data.last_decree || "");
     setReport(data.last_report || "");
-  }, [selectedMinister]);
+  }, []);
 
   const loadStructuredDirectiveTemplates = React.useCallback(async () => {
     const data = await api<{ templates: StructuredDirectiveTemplate[] }>("/api/structured_directives/templates");
@@ -117,14 +122,17 @@ function App() {
 
   const loadMinisterChat = React.useCallback(async (ministerName: string) => {
     const data = await api<{ minister: Minister; history: ChatMessage[]; suggestions: Suggestion[] }>(`/api/ministers/${encodeURIComponent(ministerName)}/chat`);
-    const allKnown = [
-      ...(state?.ministers || []),
-      ...(state?.consorts || []),
-    ];
-    setTemporaryActiveMinister(allKnown.some((m) => m.name === data.minister.name) ? null : data.minister);
+    setState((currentState) => {
+      const allKnown = [
+        ...(currentState?.ministers || []),
+        ...(currentState?.consorts || []),
+      ];
+      setTemporaryActiveMinister(allKnown.some((m) => m.name === data.minister.name) ? null : data.minister);
+      return currentState;
+    });
     setChat(data.history);
     setSuggestions(data.suggestions);
-  }, [state]);
+  }, []);
 
   const uploadPortrait = React.useCallback(async (ministerName: string, file: File) => {
     const form = new FormData();
@@ -158,8 +166,7 @@ function App() {
         next[next.length - 1] = { ...last, content, displayContent: content };
         return next;
       }
-      const content = cleanDelta.replace(/^\s+/, "");
-      return [...next, { role: "minister", speaker, content, displayContent: content }];
+      return [...next, { role: "minister", speaker, content: cleanDelta, displayContent: cleanDelta }];
     });
   }, []);
 
@@ -212,7 +219,11 @@ function App() {
       if (courtChatDrainTimerRef.current !== null) {
         window.clearTimeout(courtChatDrainTimerRef.current);
       }
+      if (courtChatBubbleTimerRef.current !== null) {
+        window.clearTimeout(courtChatBubbleTimerRef.current);
+      }
       courtChatDrainTimerRef.current = null;
+      courtChatBubbleTimerRef.current = null;
       courtChatDeltaQueueRef.current = [];
     };
   }, []);
@@ -611,8 +622,12 @@ function App() {
       if (abortController.signal.aborted) return;
       flushCourtChatDeltas();
       setCourtChatHistory(data.history || []);
-      window.setTimeout(() => {
+      if (courtChatBubbleTimerRef.current !== null) {
+        window.clearTimeout(courtChatBubbleTimerRef.current);
+      }
+      courtChatBubbleTimerRef.current = window.setTimeout(() => {
         setCourtChatBubbles({});
+        courtChatBubbleTimerRef.current = null;
       }, 7000);
     } catch (err) {
       if (abortController.signal.aborted) return;

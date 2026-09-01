@@ -200,12 +200,26 @@ def write_decree_with_agno(
     return text.strip()
 
 
-def advance_without_edict(state: GameState, db: GameDB) -> None:
+def advance_without_edict(state: GameState, db: GameDB, content=None, registry=None) -> None:
     apply_fixed_period_flows(db, state)
     message = f"本{TURN_UNIT}退朝未下正式圣旨，诸事仍待来{TURN_UNIT}处置。"
     print("\n" + message)
+    
+    from ming_sim.issues import apply_issue_inertia_and_ongoing, clear_gated_legacies
+    apply_issue_inertia_and_ongoing(db, state)
+    clear_gated_legacies(db, state)
+    
     state.next_period()
     db.save_state(state)
+    
+    from ming_sim.gating import victory_status
+    status = victory_status(state.metrics, db, content=content, registry=registry)
+    if status or state.turn >= state.metrics.get("TIMEOUT_TURN", 240):
+        if not status:
+            status = "timeout"
+        from ming_sim.simulation import get_victory_summary
+        summary = get_victory_summary(status)
+        db.save_ending_summary(state, status, summary, build_timeline(db, upto_turn=state.turn))
 
 
 def resolve_directives(
@@ -340,6 +354,15 @@ def resolve_directives(
         db.mark_directives_issued(state)
         state.next_period()
         db.save_state(state)
+        
+        status = victory_status(state.metrics, db, content=content, registry=registry)
+        if status or state.turn >= state.metrics.get("TIMEOUT_TURN", 240):
+            if not status:
+                status = "timeout"
+            from ming_sim.simulation import get_victory_summary
+            summary = get_victory_summary(status)
+            db.save_ending_summary(state, status, summary, build_timeline(db, upto_turn=state.turn))
+            
         return ResolveResult(
             awaiting=False,
             report=f"\n本{TURN_UNIT}颁布诏书：\n" + decree_text + "\n\n" + narrative,

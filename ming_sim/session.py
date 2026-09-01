@@ -970,6 +970,8 @@ class GameSession:
         simulator 邸报含 <<DECISION>> 决策点 → awaiting=True，回合未推进，存 awaiting
         态等皇帝亲裁，待 submit_decisions 续跑 phase2；无决策点 → 直接结算推进、置 issued。
         """
+        if self.state.turn_phase in (TurnPhase.AWAITING_DECISION.value, TurnPhase.ISSUED.value):
+            raise ValueError(f"当前阶段无法颁诏（可能在等决策，或本回合已颁发）。")
         if self.pending_count() > 0:
             raise ValueError(f"尚有 {self.pending_count()} 道大臣拟旨待陛下核定（准/驳），不能颁诏。")
         directives = self.db.list_directives(self.state, statuses=("draft",))
@@ -1051,7 +1053,7 @@ class GameSession:
 
     def advance_without_decree(self) -> None:
         """CLI 退朝无草案：仅财政 tick + 推进。"""
-        advance_without_edict(self.state, self.db)
+        advance_without_edict(self.state, self.db, content=self.content, registry=self.registry)
         self.state.turn_phase = TurnPhase.SUMMONING.value
         self.db.save_state(self.state)
 

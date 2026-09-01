@@ -48,6 +48,11 @@ const getClient = () => {
     const steamworks = require("steamworks.js");
     const appId = parseAppId();
     client = typeof appId === "number" ? steamworks.init(appId) : steamworks.init();
+    try {
+      client.stats.requestCurrentStats();
+    } catch (e) {
+      warn("requestCurrentStats failed:", e);
+    }
     log(`initialized${typeof appId === "number" ? ` appId=${appId}` : ""}`);
   } catch (error) {
     initError = error instanceof Error ? error.message : String(error);

@@ -35,30 +35,30 @@ class _StateMixin:
         return row is not None
 
     def save_state(self, state: GameState) -> None:
-        self.conn.execute(
-            """
-            INSERT INTO game_state (id, year, period, turn, turn_phase, ended, ending_status)
-            VALUES (1, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET year = excluded.year, period = excluded.period,
-                turn = excluded.turn, turn_phase = excluded.turn_phase,
-                ended = excluded.ended, ending_status = excluded.ending_status
-            """,
-            (
-                state.year, state.period, state.turn, state.turn_phase,
-                1 if state.ended else 0, state.ending_status,
-            ),
-        )
-        for key, value in state.metrics.items():
+        with self.conn:
             self.conn.execute(
                 """
-                INSERT INTO metrics (key, value)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                INSERT INTO game_state (id, year, period, turn, turn_phase, ended, ending_status)
+                VALUES (1, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET year = excluded.year, period = excluded.period,
+                    turn = excluded.turn, turn_phase = excluded.turn_phase,
+                    ended = excluded.ended, ending_status = excluded.ending_status
                 """,
-                (key, value),
+                (
+                    state.year, state.period, state.turn, state.turn_phase,
+                    1 if state.ended else 0, state.ending_status,
+                ),
             )
-        self.sync_economy_accounts(state)
-        self.conn.commit()
+            for key, value in state.metrics.items():
+                self.conn.execute(
+                    """
+                    INSERT INTO metrics (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (key, value),
+                )
+            self.sync_economy_accounts(state)
 
     def load_state(self, start_ym: str = "") -> GameState:
         row = self.conn.execute(

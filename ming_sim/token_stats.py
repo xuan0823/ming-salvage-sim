@@ -23,6 +23,7 @@ if hasattr(sys.stderr, "reconfigure"):
 from ming_sim.llm_config import is_dashscope_base_url
 
 TOKEN_STATS: Dict[str, Dict[str, int]] = {}
+_token_lock = threading.Lock()
 _TOKEN_PATCH_INSTALLED = False
 
 # 非流式 agent（extractor/sanitizer/decree-writer）跑完会从 agno RunMetrics 自记 token（含
@@ -93,25 +94,26 @@ def _guess_caller_tag(kwargs: Dict[str, object]) -> str:
 def _record_usage(model_id: str, usage: object, caller_tag: str = "?") -> None:
     if usage is None:
         return
-    bucket = TOKEN_STATS.setdefault(
-        model_id,
-        {"calls": 0, "prompt": 0, "completion": 0, "cached": 0, "reasoning": 0, "total": 0},
-    )
-    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
-    completion = int(getattr(usage, "completion_tokens", 0) or 0)
-    total = int(getattr(usage, "total_tokens", prompt + completion) or 0)
-    prompt_details = getattr(usage, "prompt_tokens_details", None)
-    cached = int(getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
-    cache_creation = int(getattr(prompt_details, "cache_creation_input_tokens", 0) or 0) if prompt_details else 0
-    completion_details = getattr(usage, "completion_tokens_details", None)
-    reasoning = int(getattr(completion_details, "reasoning_tokens", 0) or 0) if completion_details else 0
-    bucket["calls"] += 1
-    bucket["prompt"] += prompt
-    bucket["completion"] += completion
-    bucket["cached"] += cached
-    bucket["cache_creation"] = bucket.get("cache_creation", 0) + cache_creation
-    bucket["reasoning"] += reasoning
-    bucket["total"] += total
+    with _token_lock:
+        bucket = TOKEN_STATS.setdefault(
+            model_id,
+            {"calls": 0, "prompt": 0, "completion": 0, "cached": 0, "reasoning": 0, "total": 0},
+        )
+        prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion = int(getattr(usage, "completion_tokens", 0) or 0)
+        total = int(getattr(usage, "total_tokens", prompt + completion) or 0)
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        cached = int(getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
+        cache_creation = int(getattr(prompt_details, "cache_creation_input_tokens", 0) or 0) if prompt_details else 0
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        reasoning = int(getattr(completion_details, "reasoning_tokens", 0) or 0) if completion_details else 0
+        bucket["calls"] += 1
+        bucket["prompt"] += prompt
+        bucket["completion"] += completion
+        bucket["cached"] += cached
+        bucket["cache_creation"] = bucket.get("cache_creation", 0) + cache_creation
+        bucket["reasoning"] += reasoning
+        bucket["total"] += total
     cc_part = f" cache_creation={cache_creation}" if cache_creation else ""
     print(
         f"[TOKEN] caller={caller_tag} model={model_id} prompt={prompt} cached={cached}{cc_part} "
@@ -121,12 +123,7 @@ def _record_usage(model_id: str, usage: object, caller_tag: str = "?") -> None:
 
 
 def record_stream_metrics(model_id: str, metrics: object, caller_tag: str = "?") -> None:
-    """记录 agno 流式 RunOutput.metrics（RunMetrics）的 token 用量。
-
-    流式调用 openai response 是 stream 对象，无 .usage，monkeypatch 抓不到——
-    故 run_agent_stream_text 在终结事件显式调本函数补记。RunMetrics 字段名与
-    OpenAI usage 不同：input_tokens/output_tokens/cache_read_tokens/...
-    """
+    """记录 agno 流式 RunOutput.metrics（RunMetrics）的 token 用量。"""
     if metrics is None:
         return
     prompt = int(getattr(metrics, "input_tokens", 0) or 0)
@@ -137,17 +134,18 @@ def record_stream_metrics(model_id: str, metrics: object, caller_tag: str = "?")
     reasoning = int(getattr(metrics, "reasoning_tokens", 0) or 0)
     if total == 0 and prompt == 0 and completion == 0:
         return
-    bucket = TOKEN_STATS.setdefault(
-        model_id,
-        {"calls": 0, "prompt": 0, "completion": 0, "cached": 0, "reasoning": 0, "total": 0},
-    )
-    bucket["calls"] += 1
-    bucket["prompt"] += prompt
-    bucket["completion"] += completion
-    bucket["cached"] += cached
-    bucket["cache_creation"] = bucket.get("cache_creation", 0) + cache_creation
-    bucket["reasoning"] += reasoning
-    bucket["total"] += total
+    with _token_lock:
+        bucket = TOKEN_STATS.setdefault(
+            model_id,
+            {"calls": 0, "prompt": 0, "completion": 0, "cached": 0, "reasoning": 0, "total": 0},
+        )
+        bucket["calls"] += 1
+        bucket["prompt"] += prompt
+        bucket["completion"] += completion
+        bucket["cached"] += cached
+        bucket["cache_creation"] = bucket.get("cache_creation", 0) + cache_creation
+        bucket["reasoning"] += reasoning
+        bucket["total"] += total
     cc_part = f" cache_creation={cache_creation}" if cache_creation else ""
     print(
         f"[TOKEN] caller={caller_tag} model={model_id} prompt={prompt} cached={cached}{cc_part} "
@@ -190,10 +188,18 @@ _DASHSCOPE_DYNAMIC_SYSTEM_MARKERS = (
 
 def _dashscope_static_prefix_end(content: str) -> int:
     """返回 system 中适合显式缓存的静态前缀长度。"""
-    dynamic_starts = [
-        idx for marker in _DASHSCOPE_DYNAMIC_SYSTEM_MARKERS
-        if (idx := content.find(marker)) >= 0
-    ]
+    dynamic_starts = []
+    for marker in _DASHSCOPE_DYNAMIC_SYSTEM_MARKERS:
+        # Match marker only at the beginning of the content or following a newline
+        idx = content.find(marker)
+        if idx == 0 or (idx > 0 and content[idx - 1] == "\n"):
+            dynamic_starts.append(idx)
+        else:
+            # Check if it appears later in the string following a newline
+            idx = content.find("\n" + marker)
+            if idx >= 0:
+                dynamic_starts.append(idx + 1)
+                
     return min(dynamic_starts) if dynamic_starts else len(content)
 
 

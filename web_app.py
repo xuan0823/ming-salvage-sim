@@ -3721,19 +3721,27 @@ async def api_court_chat_summary(request: CourtChatSummaryRequest) -> Dict[str, 
     _try_game_op_or_409()
     try:
         return await asyncio.to_thread(get_game().court_chat_summary, messages)
+    except LLMUnavailable as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         _GAME_OP_LOCK.release()
 
 
 @app.post("/api/directives")
 async def api_create_directive(request: DirectiveRequest) -> Dict[str, Any]:
-    if not request.text.strip():
-        raise HTTPException(status_code=400, detail="指令内容不能为空。")
-    dv = get_game().session.add_directive(request.text.strip(), notes=request.notes)
-    return {
-        "directive": {"id": dv.id, "text": dv.text, "status": dv.status},
-        "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
-    }
+    _try_game_op_or_409()
+    try:
+        if not request.text.strip():
+            raise HTTPException(status_code=400, detail="指令内容不能为空。")
+        dv = get_game().session.add_directive(request.text.strip(), notes=request.notes)
+        return {
+            "directive": {"id": dv.id, "text": dv.text, "status": dv.status},
+            "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
+        }
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.get("/api/structured_directives/templates")
@@ -3743,65 +3751,93 @@ async def api_structured_directive_templates() -> Dict[str, Any]:
 
 @app.post("/api/structured_directives")
 async def api_create_structured_directive(request: StructuredDirectiveRequest) -> Dict[str, Any]:
+    _try_game_op_or_409()
     try:
-        get_game().session.add_structured_directive(request.template_id, request.fields)
-    except StructuredDirectiveError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
-    return {"structured_directives": get_game().session.list_structured_directives()}
+        try:
+            get_game().session.add_structured_directive(request.template_id, request.fields)
+        except StructuredDirectiveError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return {"structured_directives": get_game().session.list_structured_directives()}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.patch("/api/structured_directives/{directive_id}")
 async def api_update_structured_directive(directive_id: int, request: StructuredDirectiveRequest) -> Dict[str, Any]:
+    _try_game_op_or_409()
     try:
-        get_game().session.update_structured_directive(directive_id, request.template_id, request.fields)
-    except StructuredDirectiveError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from None
-    return {"structured_directives": get_game().session.list_structured_directives()}
+        try:
+            get_game().session.update_structured_directive(directive_id, request.template_id, request.fields)
+        except StructuredDirectiveError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return {"structured_directives": get_game().session.list_structured_directives()}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.delete("/api/structured_directives/{directive_id}")
 async def api_delete_structured_directive(directive_id: int) -> Dict[str, Any]:
-    get_game().session.delete_structured_directive(directive_id)
-    return {"structured_directives": get_game().session.list_structured_directives()}
+    _try_game_op_or_409()
+    try:
+        get_game().session.delete_structured_directive(directive_id)
+        return {"structured_directives": get_game().session.list_structured_directives()}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.patch("/api/directives/{directive_id}")
 async def api_update_directive(directive_id: int, request: DirectivePatch) -> Dict[str, Any]:
-    rows = get_game().directive_rows()
-    row = next((item for item in rows if int(item["id"]) == directive_id), None)
-    if row is None:
-        raise HTTPException(status_code=404, detail="未找到草案。")
-    text = request.text if request.text is not None else str(row["text"])
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="指令内容不能为空。")
-    get_game().session.update_directive(directive_id, text.strip())
-    return {"directives": [get_game().directive_payload(item) for item in get_game().directive_rows()]}
+    _try_game_op_or_409()
+    try:
+        rows = get_game().directive_rows()
+        row = next((item for item in rows if int(item["id"]) == directive_id), None)
+        if row is None:
+            raise HTTPException(status_code=404, detail="未找到草案。")
+        text = request.text if request.text is not None else str(row["text"])
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="指令内容不能为空。")
+        get_game().session.update_directive(directive_id, text.strip())
+        return {"directives": [get_game().directive_payload(item) for item in get_game().directive_rows()]}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.delete("/api/directives/{directive_id}")
 async def api_delete_directive(directive_id: int) -> Dict[str, Any]:
-    get_game().session.delete_directive(directive_id)
-    return {"directives": [get_game().directive_payload(item) for item in get_game().directive_rows()]}
+    _try_game_op_or_409()
+    try:
+        get_game().session.delete_directive(directive_id)
+        return {"directives": [get_game().directive_payload(item) for item in get_game().directive_rows()]}
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/directives/{directive_id}/confirm")
 async def api_confirm_directive(directive_id: int) -> Dict[str, Any]:
     """大臣拟旨经皇帝核定：pending → draft。"""
-    get_game().session.confirm_directive(directive_id)
-    return {
-        "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
-        "pending_count": get_game().session.pending_count(),
-    }
+    _try_game_op_or_409()
+    try:
+        get_game().session.confirm_directive(directive_id)
+        return {
+            "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
+            "pending_count": get_game().session.pending_count(),
+        }
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 @app.post("/api/directives/{directive_id}/reject")
 async def api_reject_directive(directive_id: int) -> Dict[str, Any]:
     """皇帝驳回大臣拟旨：pending → rejected。"""
-    get_game().session.reject_directive(directive_id)
-    return {
-        "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
-        "pending_count": get_game().session.pending_count(),
-    }
+    _try_game_op_or_409()
+    try:
+        get_game().session.reject_directive(directive_id)
+        return {
+            "directives": [get_game().directive_payload(item) for item in get_game().directive_rows()],
+            "pending_count": get_game().session.pending_count(),
+        }
+    finally:
+        _GAME_OP_LOCK.release()
 
 
 class WriteDecreeRequest(BaseModel):
@@ -3863,6 +3899,8 @@ async def api_issue_decree(body: IssueDecreeRequest = IssueDecreeRequest()) -> D
             result = game.session.resolve_turn(cheat_directive=body.cheat)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+        except LLMUnavailable as e:
+            raise HTTPException(status_code=502, detail=str(e)) from None
         decree = game.session.last_decree
         if result.awaiting:
             # 决策点暂停：回合未结算，返回决策点让前端弹窗；不刷新、不计 steam。
@@ -4228,6 +4266,9 @@ def _find_portrait_file(name: str) -> Optional[str]:
 
 @app.post("/api/consorts/{name}/portrait")
 async def api_upload_portrait(name: str, file: UploadFile = File(...)) -> Dict[str, Any]:
+    safe_name = _safe_portrait_name(name)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="人物名非法")
     # 只接受已存在的人物名 → 集合固定，杜绝路径穿越/任意写。
     character = get_game().find_character(name)
     if character is None:
@@ -4245,7 +4286,7 @@ async def api_upload_portrait(name: str, file: UploadFile = File(...)) -> Dict[s
     old = _find_portrait_file(name)
     if old is not None:
         os.remove(old)
-    with open(os.path.join(UPLOAD_PORTRAIT_DIR, f"{name}.{ext}"), "wb") as fh:
+    with open(os.path.join(UPLOAD_PORTRAIT_DIR, f"{safe_name}.{ext}"), "wb") as fh:
         fh.write(data)
     get_game().set_custom_portrait(name, f"{CUSTOM_PORTRAIT_PREFIX}{name}")
     return {"name": name, "portrait_id": f"{CUSTOM_PORTRAIT_PREFIX}{name}"}
@@ -4253,6 +4294,9 @@ async def api_upload_portrait(name: str, file: UploadFile = File(...)) -> Dict[s
 
 @app.delete("/api/consorts/{name}/portrait")
 async def api_delete_portrait(name: str) -> Dict[str, Any]:
+    safe_name = _safe_portrait_name(name)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="人物名非法")
     character = get_game().find_character(name)
     if character is None:
         raise HTTPException(status_code=404, detail="未找到该人物")
@@ -4266,13 +4310,16 @@ async def api_delete_portrait(name: str) -> Dict[str, Any]:
 
 @app.get("/api/court_layout")
 async def api_get_court_layout() -> Dict[str, Any]:
-    val = get_game().db.kv_get("court_layout")
-    return {"layout": val or "{}"}
+    return {"layout": get_game().db.kv_get("court_layout", "")}
 
 
 @app.post("/api/court_layout")
 async def api_set_court_layout(body: Dict[str, Any]) -> Dict[str, Any]:
-    get_game().db.kv_set("court_layout", body.get("layout", "{}"))
+    import json
+    layout_val = body.get("layout", "")
+    if not isinstance(layout_val, str):
+        layout_val = json.dumps(layout_val, ensure_ascii=False)
+    get_game().db.kv_set("court_layout", layout_val)
     return {"ok": True}
 
 
@@ -4341,6 +4388,8 @@ async def admin_page():
 
 if os.path.isdir(WEB_DIST):
     app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")
+else:
+    raise RuntimeError(f"前端构建产物目录不存在：{WEB_DIST}。请先执行 `npm run build`")
 
 
 _ADMIN_HTML = """<!doctype html>

@@ -19,9 +19,6 @@ export default defineConfig({
             if (id.includes("lucide-react")) {
               return "vendor-icons";
             }
-            if (id.includes("steamworks.js")) {
-              return "vendor-steam";
-            }
             if (id.includes("react") || id.includes("react-dom")) {
               return "vendor-react";
             }

@@ -207,7 +207,7 @@ def _eval_cond_str(key: str, cond: str, metrics: Dict[str, int], db: "GameDB") -
         if sop == "==":
             return cur == sval
         return cur != sval  # !=
-    m = re.match(r"^(>=|<=|>|<|==)\s*(-?\d+)$", cond)
+    m = re.match(r"^(>=|<=|>|<|==|!=)\s*(-?\d+)$", cond)
     if not m:
         return False
     op, num = m.group(1), int(m.group(2))
@@ -222,6 +222,8 @@ def _eval_cond_str(key: str, cond: str, metrics: Dict[str, int], db: "GameDB") -
         return val > num
     if op == "<":
         return val < num
+    if op == "!=":
+        return val != num
     return val == num  # ==
 
 
