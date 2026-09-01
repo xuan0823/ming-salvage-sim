@@ -1,6 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { Check, Crown, Edit3, Landmark, Loader2, Lock, MessageSquare, Plus, ScrollText, Send, Star, Trash2, Undo2, X } from "lucide-react";
+import { BookOpen, Check, Crown, Edit3, Landmark, Loader2, Lock, MessageSquare, Plus, ScrollText, Send, Star, Trash2, Undo2, X } from "lucide-react";
 import { api } from "../api";
 import { ExtractionView } from "./extraction";
 import { FullscreenModal, MinisterPortrait, cacheBust } from "./hud";
@@ -61,6 +61,19 @@ export function EndingModal({ ending, onClose }: { ending: EndingPayload; onClos
   const endingDate = lastTimeline ? `${lastTimeline.year}年${lastTimeline.period}月` : "终局";
   const timelineCount = ending.timeline?.length ?? 0;
 
+  const [chronicle, setChronicle] = React.useState<string>("");
+  const [loadingChronicle, setLoadingChronicle] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!ending) return;
+    setLoadingChronicle(true);
+    fetch("/api/ending/chronicle")
+      .then((res) => res.json())
+      .then((data) => setChronicle(data.text))
+      .catch((err) => setChronicle("史书记载散佚..."))
+      .finally(() => setLoadingChronicle(false));
+  }, [ending]);
+
   return (
     <FullscreenModal
       title="终章定论"
@@ -86,6 +99,22 @@ export function EndingModal({ ending, onClose }: { ending: EndingPayload; onClos
             <span>国史编纂官总评</span>
           </div>
           <pre className="ending-summary-text">{ending.summary || "（无总评）"}</pre>
+        </section>
+
+        <section className="ending-verdict-card" aria-label="明史本纪">
+          <div className="ending-section-kicker">
+            <BookOpen size={17} />
+            <span>《明史·本纪》后世定论</span>
+          </div>
+          {loadingChronicle ? (
+            <p className="ending-summary-text" style={{ color: "#888", fontStyle: "italic" }}>
+              史官正在奋笔疾书，撰写本纪...
+            </p>
+          ) : chronicle ? (
+            <pre className="ending-summary-text" style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>
+              {chronicle}
+            </pre>
+          ) : null}
         </section>
 
         {ending.timeline && ending.timeline.length > 0 && (

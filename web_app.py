@@ -4381,6 +4381,25 @@ async def api_admin_delete(table: str, payload: Dict[str, Any]) -> Dict[str, Any
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/ending/chronicle")
+async def api_ending_chronicle() -> Dict[str, Any]:
+    game = get_game()
+    if not game.state.ended:
+        return {"text": ""}
+        
+    cached = game.db.kv_get("ming_history_chronicle")
+    if cached:
+        return {"text": cached}
+        
+    try:
+        from ming_sim.agents import write_ming_history
+        text = write_ming_history(game.config.llm, game.state)
+        game.db.kv_set("ming_history_chronicle", text)
+        return {"text": text}
+    except Exception as e:
+        return {"text": f"史官编纂失败：{e}"}
+
+
 @app.get("/admin")
 async def admin_page():
     return HTMLResponse(_ADMIN_HTML)

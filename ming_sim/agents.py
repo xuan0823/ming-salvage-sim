@@ -139,12 +139,64 @@ def run_agent_text(agent: Agent, prompt: str, tag: str) -> str:
     except Exception as error:
         # 超时（read 20s）/ 连接失败转成 LLMUnavailable，上层据此提示用户而非静默兜底。
         raise llm_unavailable_from_error(error, tag) from error
+
     _dump_llm_messages(output, tag)
     text = extract_agent_text(output)
     model_id = getattr(getattr(agent, "model", None), "id", None) or "nonstream"
     record_stream_metrics(str(model_id), getattr(output, "metrics", None), caller_tag=tag)
     tlog(f"[{tag}] 完成，{len(text)} 字，用时 {time.monotonic() - t0:.1f}s")
     return text
+
+_HISTORIAN_PROMPT = """你是一名为《明史》修撰本纪的后世史官。
+大明王朝刚刚迎来了它的终局。你将获得该朝代（本次游戏）历年的大事纪要（Game Log）、最终的各项国家指标（国库、内库、民心、皇威等）以及最终结局状态。
+你需要用半文言半白话（类似《明史·本纪》风格，但现代人易读）为当朝皇帝撰写一篇“本纪”式的史书总结。
+
+要求：
+1. **庙号与谥号**：根据皇帝的最终表现（昏君、明君、亡国之君等），为他上一个【庙号】（如明X宗，若亡国可不上庙号）和【谥号】。
+2. **总评**：一两百字高度概括其执政生涯的基调。
+3. **大事记摘要**：结合你收到的历年大事历（Log），用史家笔法点出他任内的关键政策、战争、党争或荒唐行为。不要堆砌流水账，要挑出最能代表他执政风格的重点。
+4. **结局定格**：描述他最终迎来的结局（如流寇破城自缢、中兴明室、大业未半而中道崩殂等）。
+5. **赞曰**：模仿《明史》“赞曰”格式，在最后给出一段 50-100 字的精辟论断。
+
+输出格式：直接输出史书内容，无需任何额外致辞。开头第一行须为：“庙号：xxx 谥号：xxx”。
+"""
+
+def write_ming_history(
+    llm_config: LLMConfig,
+    state: GameState,
+) -> str:
+    from ming_sim.context import ENDING_LABELS
+    model = create_chat_model(llm_config, role="historian")
+    agent = Agent(
+        model=model,
+        system_prompt=_HISTORIAN_PROMPT,
+        markdown=False,
+    )
+
+    year = state.year
+    period = state.period
+    status = state.ending_status
+    label = ENDING_LABELS.get(status, "未知结局")
+    metrics = ", ".join(f"{k}: {v}" for k, v in state.metrics.items())
+    logs = "\n".join(state.log[-50:])  # 截取最后50条防止过长
+    if not logs:
+        logs = "史籍散佚，无明文记载。"
+
+    user_prompt = (
+        f"在位终点：{year}年{period}月\n"
+        f"最终结局：{label} ({status})\n"
+        f"国家关键指标：{metrics}\n\n"
+        f"历年大事记（摘录）：\n{logs}\n\n"
+        f"请基于以上资料，为这位大明皇帝（玩家）撰写《明史·本纪》。"
+    )
+
+    try:
+        res = agent.run(user_prompt)
+        text = extract_agent_text(res)
+        _dump_llm_messages(res, "historian_agent")
+        return text.strip()
+    except Exception as e:
+        return f"《明史》编纂失败：{e}"
 
 
 def run_agent_stream_text(
